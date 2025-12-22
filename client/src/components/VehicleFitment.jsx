@@ -1,0 +1,508 @@
+import { useState, useEffect, useMemo } from "react";
+import {
+  getYearOptions,
+  getMakeOptions,
+  getModelOptions,
+  findFitment,
+} from "../utils/fitmentEngine";
+import { matchProductsToVehicle } from "../utils/fitmentMatcher";
+import { matchAccessoriesToVehicle, getAllowedDinSizes } from "../utils/accessoryMatcher";
+import FilterProductsModal from "./FilterProductsModal";
+
+/* ================= FITMENT NORMALIZATION HELPERS ================= */
+
+// 🔊 Speaker identification helper
+function isSpeakerProduct(p) {
+  return Array.isArray(p.speakerSizes) || !!p.speakerSize;
+}
+
+function normalizeLocationLabel(raw) {
+  const s = (raw || "").toLowerCase();
+
+  if (s.includes("front") && s.includes("door")) return "Front Door";
+  if (s.includes("rear") && s.includes("door")) return "Rear Door";
+  if (s.includes("dash")) return "Dash";
+  if (s.includes("center")) return "Center";
+  if (s.includes("pillar") || s.includes("a-pillar")) return "A-Pillar";
+  if (s.includes("sail")) return "Sail Panel";
+  if (s.includes("deck") || s.includes("rear deck")) return "Rear Deck";
+  if (s.includes("kick")) return "Kick Panel";
+
+  return String(raw || "")
+    .replace(/[_\-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function getLocLabel(loc, idx = 0) {
+  const candidates = [
+    loc?.name,
+    loc?.location,
+    loc?.label,
+    loc?.position,
+    loc?.speakerLocation,
+    loc?.mountingLocation,
+    loc?.area,
+    loc?.description,
+  ];
+
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return normalizeLocationLabel(c);
+  }
+
+  const fallbackByIndex = [
+    "Front Door",
+    "Front Door Tweeter",
+    "Dash / Center",
+    "Rear Door",
+    "Rear Deck",
+    "Rear Side Panel",
+  ];
+
+  if (loc?.sizes?.length) return fallbackByIndex[idx] || `Location ${idx + 1}`;
+  return `Location ${idx + 1}`;
+}
+
+function prettyLocationLabel(label) {
+  if (!label) return label;
+  const map = {
+    "Front Door Tweeter": "A-Pillar / Tweeter",
+    "Dash / Center": "Dash / Center Speaker",
+    "Rear Side Panel": "Rear Side Panel / Quarter",
+  };
+  return map[label] || label;
+}
+
+function getLocSizes(loc) {
+  const raw =
+    loc?.sizes ??
+    loc?.speakerSizes ??
+    loc?.size ??
+    loc?.speakerSize ??
+    loc?.diameter ??
+    loc?.diameters ??
+    loc?.fitSizes ??
+    [];
+
+  if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
+
+  if (raw && typeof raw === "object") {
+    return Object.values(raw)
+      .flat()
+      .map((x) => String(x).trim())
+      .filter(Boolean);
+  }
+
+  const str = String(raw || "").trim();
+  if (!str) return [];
+  return str
+    .split(/[,/|]|&| and /i)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function normalizeLocationsFromFitment(fitment) {
+  if (!fitment?.locations) return [];
+
+  return fitment.locations
+    .map((loc, idx) => {
+      const label = getLocLabel(loc, idx);
+      const sizes = getLocSizes(loc);
+      if (!label || sizes.length === 0) return null;
+      return { label, sizes };
+    })
+    .filter(Boolean);
+}
+
+function normSize(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/″|”|“/g, '"')
+    .replace(/inches|inch|in\./g, "in")
+    .trim();
+}
+
+/* ================= CATEGORY BUCKETING =================
+   We bucket by SKU patterns + category text.
+   This makes the modal conditional without clutter.
+*/
+
+function getSkuCandidate(p) {
+  return (
+    p?.sku ||
+    p?.SKU ||
+    p?.partNumber ||
+    p?.vendorSku ||
+    p?.mpn ||
+    p?.name ||
+    ""
+  );
+}
+
+function bucketForProduct(p) {
+  const cat = String(p?.category || "").toLowerCase();
+  const sku = String(getSkuCandidate(p)).toUpperCase();
+
+  // Speakers (prefer actual speaker fields)
+  if (isSpeakerProduct(p) || cat.includes("speaker")) return "Speakers";
+
+  // Radios
+  if (cat.includes("radio") || cat.includes("head unit")) return "Radios";
+
+  // Dash Kits (Metra common prefixes)
+  if (cat.includes("dash") || cat.includes("kit") || sku.startsWith("95-") || sku.startsWith("99-"))
+    return "Dash Kits";
+
+  // Harnesses
+  if (cat.includes("harness") || sku.startsWith("70-") || sku.startsWith("71-") || sku.includes("HRN-"))
+    return "Harnesses";
+
+  // Antennas
+  if (cat.includes("antenna") || sku.startsWith("40-")) return "Antennas";
+
+  // Interfaces / modules (Maestro/PAC/etc — not a brand category)
+  if (cat.includes("interface") || cat.includes("module") || sku.startsWith("ADS-") || sku.includes("RR"))
+    return "Interfaces";
+
+  return "Accessories";
+}
+
+export default function VehicleFitment({ products = [], onAddProduct, onVehicleSelected }) {
+  /* ================= VEHICLE ================= */
+  const [year, setYear] = useState("");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+
+  /* ================= OPTIONS ================= */
+  const [years, setYears] = useState([]);
+  const [makes, setMakes] = useState([]);
+  const [models, setModels] = useState([]);
+
+  /* ================= FITMENT ================= */
+  const [fitment, setFitment] = useState(null);
+
+  /* ================= FILTER MODAL ================= */
+  const [showFilters, setShowFilters] = useState(false);
+
+  /* ================= FILTERS ================= */
+  const [bucket, setBucket] = useState("All"); // All / Speakers / Dash Kits / etc
+  const [brand, setBrand] = useState("All");
+  const [location, setLocation] = useState("All");
+  const [din, setDin] = useState("All"); // Radios only: All / Single / Double
+
+  /* ================= LOAD YEARS (REMOVE MID-YEARS) ================= */
+  useEffect(() => {
+    getYearOptions().then((yrs) => {
+      const cleanYears = Array.from(
+        new Set(
+          (yrs || [])
+            .map((y) => Math.floor(Number(y)))
+            .filter((y) => Number.isInteger(y))
+        )
+      ).sort((a, b) => b - a);
+
+      setYears(cleanYears);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!year) return setMakes([]);
+    getMakeOptions(Number(year)).then(setMakes);
+  }, [year]);
+
+  useEffect(() => {
+    if (!year || !make) return setModels([]);
+    getModelOptions(Number(year), make).then(setModels);
+  }, [year, make]);
+
+  /* ================= FIND FITMENT (ASYNC SAFE) ================= */
+  useEffect(() => {
+    if (!year || !make || !model) {
+      setFitment(null);
+      onVehicleSelected?.(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      const f = await findFitment(Number(year), make, model);
+      if (cancelled) return;
+
+      setFitment(f || null);
+
+      // Reset filters on vehicle change
+      setBucket("All");
+      setBrand("All");
+      setLocation("All");
+      setDin("All");
+
+      onVehicleSelected?.(
+        f
+          ? {
+              year: Number(year),
+              make: f.make,
+              model: f.model,
+              rawFitment: f,
+            }
+          : null
+      );
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [year, make, model, onVehicleSelected]);
+
+  /* ================= MATCH PRODUCTS ================= */
+  const recommended = useMemo(() => {
+    if (!fitment) return [];
+
+    const speakerMatches = matchProductsToVehicle(fitment, products);
+    const accessoryMatches = matchAccessoriesToVehicle(
+      {
+        year: Number(year),
+        make: fitment.make,
+        model: fitment.model,
+        trim: fitment.raw?.trim || "",
+      },
+      products
+    );
+
+    // De-dupe by id
+    const map = new Map();
+    [...speakerMatches, ...accessoryMatches].forEach((p) => {
+      if (p?.id) map.set(p.id, p);
+    });
+    return Array.from(map.values());
+  }, [fitment, products, year]);
+
+  /* ================= LOCATION OPTIONS (YOUR WORKING ONE) ================= */
+  const locRows = useMemo(() => normalizeLocationsFromFitment(fitment), [fitment]);
+
+  const locationOptions = useMemo(() => {
+    const set = new Set();
+    locRows.forEach((r) => r.label && set.add(prettyLocationLabel(r.label)));
+    return ["All", ...Array.from(set)];
+  }, [locRows]);
+
+  /* ================= BUCKET COUNTS ================= */
+  const bucketCounts = useMemo(() => {
+    const counts = {
+      All: recommended.length,
+      Speakers: 0,
+      "Dash Kits": 0,
+      Harnesses: 0,
+      Antennas: 0,
+      Radios: 0,
+      Interfaces: 0,
+      Accessories: 0,
+    };
+    recommended.forEach((p) => {
+      const b = bucketForProduct(p);
+      counts[b] = (counts[b] || 0) + 1;
+    });
+    return counts;
+  }, [recommended]);
+
+  /* ================= BRAND OPTIONS (CONDITIONAL) ================= */
+  const brandOptions = useMemo(() => {
+    const set = new Set();
+
+    // base list depends on current bucket selection
+    const base =
+      bucket === "All"
+        ? recommended
+        : recommended.filter((p) => bucketForProduct(p) === bucket);
+
+    base.forEach((p) => p.brand && set.add(p.brand));
+    return ["All", ...Array.from(set).sort()];
+  }, [recommended, bucket]);
+
+  /* ================= FILTERED PRODUCTS (CONDITIONAL) ================= */
+  const filteredProducts = useMemo(() => {
+    let list = [...recommended];
+
+    // bucket filter
+    if (bucket !== "All") {
+      list = list.filter((p) => bucketForProduct(p) === bucket);
+    }
+
+    // brand filter
+    if (brand !== "All") {
+      list = list.filter((p) => p.brand === brand);
+    }
+
+    // speaker location filter ONLY for speakers bucket
+    if (bucket === "Speakers" && location !== "All") {
+      const row = locRows.find((r) => prettyLocationLabel(r.label) === location);
+      const allowed = new Set((row?.sizes || []).map(normSize));
+
+      list = list.filter((p) => {
+        if (!isSpeakerProduct(p)) return false;
+        const sizes = Array.isArray(p.speakerSizes)
+          ? p.speakerSizes
+          : p.speakerSize
+          ? [p.speakerSize]
+          : [];
+        return sizes.some((s) => allowed.has(normSize(s)));
+      });
+    }
+
+    // radio DIN filter ONLY for radios bucket
+    if (bucket === "Radios" && din !== "All") {
+      // gate radios based on allowed DIN sizes from Metra dashkits
+      const allowed = getAllowedDinSizes({
+        year: Number(year),
+        make: fitment?.make || make,
+        model: fitment?.model || model,
+        trim: fitment?.raw?.trim || "",
+      });
+
+      const allowSingle = allowed.singleDin;
+      const allowDouble = allowed.doubleDin;
+
+      // If Metra says no kit exists, hide that radio size
+      list = list.filter((p) => {
+        const size = String(p.radioSize || p.din || "").toLowerCase(); // optional future field
+        if (din === "Single") return allowSingle;
+        if (din === "Double") return allowDouble;
+        return true;
+      });
+    }
+
+    return list;
+  }, [recommended, bucket, brand, location, din, locRows, year, make, model, fitment]);
+
+  /* ================= UI ================= */
+  return (
+    <div className="space-y-3 border p-3 rounded-lg bg-gray-50">
+      <h3 className="text-sm font-semibold">Vehicle Fitment</h3>
+
+      {/* SELECTORS — KEEP YOUR ORIGINAL STYLING */}
+      <div className="grid grid-cols-3 gap-2">
+        <select
+          value={year}
+          onChange={(e) => {
+            setYear(e.target.value);
+            setMake("");
+            setModel("");
+          }}
+          className="h-10 px-3 rounded border bg-white text-sm"
+        >
+          <option value="">Year</option>
+          {years.map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={make}
+          onChange={(e) => {
+            setMake(e.target.value);
+            setModel("");
+          }}
+          disabled={!year}
+          className="h-10 px-3 rounded border bg-white text-sm disabled:bg-gray-100"
+        >
+          <option value="">Make</option>
+          {makes.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          disabled={!make}
+          className="h-10 px-3 rounded border bg-white text-sm disabled:bg-gray-100"
+        >
+          <option value="">Model</option>
+          {models.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* FILTER BUTTON */}
+      {fitment && (
+        <button
+          onClick={() => setShowFilters(true)}
+          className="h-10 px-3 rounded border bg-white text-sm hover:bg-gray-100 w-full"
+        >
+          Filter Products
+        </button>
+      )}
+
+      {/* PRODUCT GRID — KEEP YOUR “SEE MORE AT A TIME” HEIGHT */}
+      {fitment && (
+        <div className="max-h-[80vh] overflow-y-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {filteredProducts.length === 0 ? (
+              <div className="col-span-full text-xs text-gray-500">No matches</div>
+            ) : (
+              filteredProducts.map((p) => (
+                <button
+                  key={p.id}
+                  onMouseDown={() => onAddProduct?.(p)}
+                  className="bg-white border rounded-lg p-3 hover:shadow transition text-left"
+                >
+                  <div className="w-full h-32 bg-gray-100 rounded flex items-center justify-center mb-2 overflow-hidden">
+                    {p.imageUrl ? (
+                      <img
+                        src={p.imageUrl}
+                        alt={p.name}
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <span className="text-xs text-gray-400">No Image</span>
+                    )}
+                  </div>
+
+                  <div className="text-sm font-semibold line-clamp-2">{p.name}</div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    {(p.sku || p.name || "—")} • {p.brand || "—"}
+                  </div>
+                  <div className="text-sm font-bold mt-2">
+                    ${Number(p.price || 0).toFixed(2)}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* FILTER MODAL (CONDITIONAL UI) */}
+      <FilterProductsModal
+        open={showFilters}
+        onClose={() => setShowFilters(false)}
+        bucket={bucket}
+        setBucket={(b) => {
+          // when switching bucket, reset bucket-specific filters
+          setBucket(b);
+          setBrand("All");
+          setLocation("All");
+          setDin("All");
+        }}
+        bucketCounts={bucketCounts}
+        brand={brand}
+        setBrand={setBrand}
+        brandOptions={brandOptions}
+        location={location}
+        setLocation={setLocation}
+        locationOptions={locationOptions}
+        din={din}
+        setDin={setDin}
+      />
+    </div>
+  );
+}

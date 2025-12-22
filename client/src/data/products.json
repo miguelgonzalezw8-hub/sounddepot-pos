@@ -1,0 +1,27 @@
+[
+  {
+    "id": 1,
+    "name": "Pioneer 6.5\" Coaxial Speakers",
+    "sku": "TS-A652F",
+    "category": "speaker",
+    "size": "6 1/2",
+    "price": 89.99,
+    "metraCode": ""
+  },
+  {
+    "id": 2,
+    "name": "Metra Dash Kit",
+    "sku": "95-7801",
+    "category": "dash_kit",
+    "price": 29.99,
+    "metraCode": "95-7801"
+  },
+  {
+    "id": 3,
+    "name": "Metra Speaker Harness",
+    "sku": "72-7800",
+    "category": "speaker_harness",
+    "price": 9.99,
+    "metraCode": "72-7800"
+  }
+]

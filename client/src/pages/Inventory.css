@@ -1,0 +1,256 @@
+/* ================================
+   ROOT VARIABLES (light mode)
+   ================================ */
+:root {
+  --bg-main: #f5f8fb;
+  --bg-card: #ffffff;
+  --bg-primary: #2563eb;
+  --bg-primary-dark: #1e40af;
+
+  --text-main: #0f172a;
+  --text-subtle: #64748b;
+
+  --border-light: #e2e8f0;
+
+  --danger: #dc2626;
+  --success: #16a34a;
+
+  --shadow-soft: 0 10px 30px rgba(0,0,0,0.08);
+  --shadow-hover: 0 16px 36px rgba(0,0,0,0.12);
+}
+
+/* ================================
+   PAGE LAYOUT
+   ================================ */
+.inventory-container {
+  background: var(--bg-main);
+  min-height: 100%;
+  padding: 24px 28px;
+  box-sizing: border-box;
+}
+
+/* ================================
+   SEARCH BAR
+   ================================ */
+.search-row {
+  margin-bottom: 32px;
+}
+
+.search-box {
+  width: 100%;
+  max-width: 900px;
+  padding: 14px 18px;
+  font-size: 15px;
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
+  outline: none;
+  background: var(--bg-card);
+  transition: box-shadow 0.2s ease, border 0.2s ease;
+}
+
+.search-box::placeholder {
+  color: var(--text-subtle);
+}
+
+.search-box:focus {
+  border-color: var(--bg-primary);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+}
+
+/* ================================
+   ACTION TILES
+   ================================ */
+.inventory-tiles {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 38px;
+}
+
+.tile {
+  width: 220px;
+  padding: 22px;
+  border-radius: 16px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.tile:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-hover);
+}
+
+.tile.primary {
+  background: linear-gradient(135deg, var(--bg-primary), var(--bg-primary-dark));
+  color: #fff;
+}
+
+.tile-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.tile-sub {
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.tile.primary .tile-sub {
+  color: rgba(255,255,255,0.85);
+}
+
+/* ================================
+   TABLE WRAPPER
+   ================================ */
+.table-wrapper {
+  background: var(--bg-card);
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+}
+
+/* ================================
+   INVENTORY TABLE
+   ================================ */
+.inventory-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.inventory-table thead {
+  background: #f8fafc;
+}
+
+.inventory-table th {
+  text-align: left;
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-subtle);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.inventory-table td {
+  padding: 14px 16px;
+  font-size: 14px;
+  color: var(--text-main);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.inventory-table tr:last-child td {
+  border-bottom: none;
+}
+
+.inventory-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+/* ================================
+   EMPTY STATE MESSAGE
+   ================================ */
+.inventory-table td[colspan] {
+  text-align: center;
+  padding: 22px;
+  font-size: 14px;
+  color: var(--text-subtle);
+}
+
+/* ================================
+   ACTION BUTTONS
+   ================================ */
+.actions-col {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-btn,
+.delete-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.edit-btn {
+  background: var(--bg-primary);
+  color: #fff;
+}
+
+.edit-btn:hover {
+  background: var(--bg-primary-dark);
+  transform: translateY(-1px);
+}
+
+.delete-btn {
+  background: var(--danger);
+  color: #fff;
+}
+
+.delete-btn:hover {
+  background: #b91c1c;
+  transform: translateY(-1px);
+}
+
+/* ================================
+   RESPONSIVE
+   ================================ */
+@media (max-width: 900px) {
+  .inventory-tiles {
+    flex-direction: column;
+  }
+
+  .tile {
+    width: 100%;
+  }
+
+  .search-box {
+    max-width: 100%;
+  }
+}
+/* ================================
+   TILE TEXT FIX (stack title + subtitle)
+   ================================ */
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.tile-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  display: block;
+  line-height: 1.2;
+}
+
+.tile-sub {
+  font-size: 13px;
+  font-weight: 400;
+  display: block;
+  line-height: 1.3;
+}
+
+/* Ensure subtitle color behaves correctly */
+.tile:not(.primary) .tile-sub {
+  color: var(--text-subtle);
+}
+
+.tile.primary .tile-sub {
+  color: rgba(255, 255, 255, 0.9);
+}
+/* ================================
+   TALLER INVENTORY ACTION TILES
+   ================================ */
+
+.tile {
+  min-height: 120px;          /* 🔹 makes tiles taller */
+  padding-top: 26px;
+  padding-bottom: 26px;
+}

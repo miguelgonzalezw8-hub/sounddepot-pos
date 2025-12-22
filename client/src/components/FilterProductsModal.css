@@ -1,0 +1,143 @@
+.fp-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+}
+
+.fp-modal {
+  width: 100%;
+  max-width: 520px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #eee;
+}
+
+.fp-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.fp-close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.fp-close:hover {
+  opacity: 1;
+}
+
+.fp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fp-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #555;
+}
+
+.fp-select {
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  padding: 0 10px;
+  font-size: 13px;
+  outline: none;
+}
+
+.fp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fp-chip {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fp-chip.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.fp-chip.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fp-chip-count {
+  background: rgba(0, 0, 0, 0.08);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.fp-chip.active .fp-chip-count {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.fp-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.fp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.fp-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid #eee;
+}
+
+.fp-btn {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.fp-btn.primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}

@@ -1,0 +1,274 @@
+/* ================================
+   RECEIPT THEME VARIABLES
+   ================================ */
+
+:root {
+  /* DEFAULT: Sound Depot Purple */
+  --receipt-primary: #8955b2;
+  --receipt-primary-dark: #6f3e95;
+  --receipt-header-bg: #ece4f3;
+  --receipt-text: #111;
+  --receipt-border: #ccc;
+}
+
+/* ================================
+   BASE LAYOUT
+   ================================ */
+
+body {
+  background: #f3f3f3;
+  font-family: "Inter", sans-serif;
+  color: var(--receipt-text);
+}
+
+.receipt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.receipt-modal {
+  background: #fff;
+  width: 900px;
+  max-height: 95vh;
+  overflow-y: auto;
+  padding: 20px 40px;
+  border-radius: 8px;
+  position: relative;
+  box-shadow: 0 0 25px rgba(0, 0, 0, 0.3);
+}
+
+/* ================================
+   NON-PRINT CONTROLS
+   ================================ */
+
+.non-printable {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.btn {
+  padding: 8px 16px;
+  border: none;
+  cursor: pointer;
+  border-radius: 5px;
+  font-weight: 600;
+  background: #ddd;
+}
+
+.print-btn {
+  background: var(--receipt-primary);
+  color: white;
+}
+
+.close-btn {
+  background: #cc0000;
+  color: white;
+}
+
+/* ================================
+   PRINT AREA
+   ================================ */
+
+#receipt-print-area {
+  background: white;
+  padding: 20px 10px 40px;
+}
+
+.receipt-page {
+  max-width: 750px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* ================================
+   HEADER
+   ================================ */
+
+.header-block {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.logo-img {
+  display: block;
+  margin: 0 auto 15px;
+  width: 220px;
+  max-width: 45%;
+  height: auto;
+}
+
+/* ================================
+   TOP INFO
+   ================================ */
+
+.top-info-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 25px;
+}
+
+.top-info-row > div {
+  width: 33%;
+}
+
+.label {
+  font-weight: 600;
+  opacity: 0.75;
+  font-size: 13px;
+}
+
+.value {
+  font-size: 14px;
+}
+
+/* ================================
+   BILL TO / VEHICLE
+   ================================ */
+
+.from-to-section {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--receipt-border);
+}
+
+.section-title {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 5px;
+  border-bottom: 1px solid var(--receipt-primary);
+  padding-bottom: 4px;
+}
+
+/* ================================
+   VEHICLE
+   ================================ */
+
+.vehicle-section {
+  margin-bottom: 25px;
+}
+
+/* ================================
+   ITEMS TABLE
+   ================================ */
+
+.items-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.items-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 25px;
+}
+
+.items-table th {
+  background: var(--receipt-primary);
+  color: white;
+  padding: 8px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.items-table td {
+  border-bottom: 1px solid var(--receipt-border);
+  padding: 8px;
+  font-size: 14px;
+}
+
+.desc-sub {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* ================================
+   TOTALS / PAYMENT
+   ================================ */
+
+.bottom-section {
+  display: flex;
+  justify-content: space-between;
+  gap: 40px;
+  margin-bottom: 25px;
+}
+
+.payment-block {
+  max-width: 45%;
+}
+
+.totals-block {
+  min-width: 220px;
+  border-top: 1px solid var(--receipt-border);
+  padding-top: 10px;
+}
+
+.totals-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.grand-total {
+  background: var(--receipt-primary);
+  color: white;
+  padding: 8px;
+  margin-top: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  border-radius: 4px;
+}
+
+/* ================================
+   FOOTER
+   ================================ */
+
+.footer-text {
+  text-align: center;
+  font-size: 14px;
+  margin-top: 30px;
+  opacity: 0.75;
+}
+
+/* ================================
+   PRINT MODE
+   ================================ */
+
+@media print {
+  .non-printable {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  .receipt-overlay {
+    position: static;
+    background: transparent;
+    display: block;
+  }
+
+  .receipt-modal {
+    box-shadow: none;
+    width: 100%;
+    max-height: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  #receipt-print-area {
+    margin: 0 auto;
+    width: 100%;
+    box-shadow: none;
+  }
+}

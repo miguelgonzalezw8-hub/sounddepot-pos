@@ -1,0 +1,141 @@
+.checkin-container {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* ===============================
+   MASTER SEARCH
+   =============================== */
+.master-search {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 16px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  background: white;
+  outline: none;
+  margin-bottom: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.master-search:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* ===============================
+   SEARCH RESULTS
+   =============================== */
+.search-results {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.08);
+  margin-bottom: 16px;
+}
+
+.search-result {
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.search-result:hover {
+  background: #f1f5f9;
+}
+
+.search-result strong {
+  display: block;
+  font-size: 14px;
+}
+
+.search-result .meta {
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* ===============================
+   PRODUCT SUMMARY
+   =============================== */
+.product-summary {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+
+.product-summary strong {
+  font-size: 16px;
+}
+
+.product-summary button {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+/* ===============================
+   UNIT ENTRY
+   =============================== */
+.unit-list h3 {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.unit-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.unit-row input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+}
+
+.remove-btn {
+  background: #fee2e2;
+  border: none;
+  color: #991b1b;
+  padding: 0 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.add-row-btn {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  color: #2563eb;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ===============================
+   SAVE
+   =============================== */
+.save-btn {
+  margin-top: 18px;
+  width: 100%;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: 10px;
+  background: #16a34a;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

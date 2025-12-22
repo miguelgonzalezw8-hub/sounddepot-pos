@@ -1,0 +1,68 @@
+/* ================================
+   ROOT RESET (DON’T FIGHT TAILWIND)
+   ================================ */
+#root {
+  min-height: 100vh;
+}
+
+/* ================================
+   LIGHT MODE VARIABLES (DEFAULT)
+   ================================ */
+html[data-theme="light"] {
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+
+  --text-main: #020617;
+  --text-subtle: #64748b;
+
+  --border-light: #e2e8f0;
+
+  --primary: #2563eb;
+  --primary-dark: #1e40af;
+
+  --danger: #ef4444;
+  --success: #22c55e;
+
+  --shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.12);
+}
+
+/* ================================
+   DARK MODE VARIABLES
+   ================================ */
+html[data-theme="dark"] {
+  --bg-main: #020617;
+  --bg-card: #020617;
+
+  --text-main: #e5e7eb;
+  --text-subtle: #94a3b8;
+
+  --border-light: #1e293b;
+
+  --primary: #2563eb;
+  --primary-dark: #1e40af;
+
+  --danger: #ef4444;
+  --success: #22c55e;
+
+  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.6);
+  --shadow-hover: 0 16px 36px rgba(0, 0, 0, 0.75);
+}
+
+/* ================================
+   GLOBAL BASE STYLES
+   ================================ */
+body {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+}
+
+/* ================================
+   OPTIONAL CARD HELPER
+   ================================ */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-soft);
+  border-radius: 0.75rem;
+}

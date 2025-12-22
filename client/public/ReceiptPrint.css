@@ -1,0 +1,305 @@
+/* Overlay covers whole app */
+.receipt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+/* Modal container */
+.receipt-modal {
+  position: relative;
+  max-width: 900px;
+  width: 100%;
+  max-height: 95vh;
+  overflow-y: auto;
+  background: #f5f3f7;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.4);
+}
+
+/* Buttons */
+.print-btn,
+.close-btn {
+  position: absolute;
+  top: 10px;
+  padding: 6px 12px;
+  border: none;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.print-btn {
+  left: 10px;
+  background: #4b2c82;
+  color: #fff;
+}
+
+.close-btn {
+  right: 10px;
+  background: #ddd;
+}
+
+/* The "paper" page */
+.receipt-page {
+  margin: 30px auto 10px auto;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 30px 40px;
+  box-shadow: 0 0 5px rgba(0,0,0,0.15);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #222;
+}
+
+/* Title */
+.receipt-title {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+  color: #4b2c82;
+  margin-bottom: 24px;
+}
+
+/* Top info row */
+.top-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.top-block {
+  flex: 1;
+}
+
+.top-block.center {
+  text-align: center;
+}
+
+.top-block.right {
+  text-align: right;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+}
+
+.value {
+  font-size: 13px;
+}
+
+/* From / To */
+.from-to-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 40px;
+  margin-bottom: 24px;
+}
+
+.from-block,
+.to-block {
+  flex: 1;
+}
+
+.section-heading {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.section-heading.right,
+.value.right {
+  text-align: right;
+}
+
+/* Items header */
+.items-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+/* Items table */
+.items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+
+.items-table thead tr {
+  background: #4b2c82;
+  color: #fff;
+}
+
+.items-table th,
+.items-table td {
+  border: 1px solid #ddd;
+  padding: 6px 8px;
+}
+
+.col-item-no {
+  width: 60px;
+  text-align: center;
+}
+
+.col-qty {
+  width: 80px;
+  text-align: center;
+}
+
+.col-price,
+.col-total {
+  width: 100px;
+  text-align: right;
+}
+
+.desc-main {
+  font-weight: 600;
+}
+
+.desc-sub {
+  font-size: 11px;
+  color: #666;
+}
+
+/* Bottom row */
+.bottom-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 40px;
+  margin-top: 10px;
+}
+
+.payment-block {
+  flex: 1;
+}
+
+.totals-block {
+  flex: 0 0 260px;
+  font-size: 13px;
+}
+
+.totals-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+}
+
+.totals-row.grand {
+  margin-top: 6px;
+  font-weight: 700;
+  background: #4b2c82;
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+/* Notes */
+.notes-block {
+  margin-top: 20px;
+  font-size: 13px;
+}
+
+.footer-text {
+  margin-top: 24px;
+  text-align: center;
+  font-size: 12px;
+  color: #555;
+}
+
+/* PRINT STYLES: make it full page, hide backdrop/buttons */
+@media print {
+  body {
+    margin: 0;
+    background: #ffffff;
+  }
+
+  .receipt-overlay {
+    position: static;
+    inset: auto;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .receipt-modal {
+    max-width: none;
+    max-height: none;
+    padding: 0;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  .receipt-page {
+    margin: 0;
+    padding: 30px 40px;
+    box-shadow: none;
+    border-radius: 0;
+  }
+  /* Logo / Title Area */
+.receipt-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+/* FINAL FIXED LOGO SIZE (modal + print) */
+.receipt-logo {
+  max-width: 180px !important;
+  max-height: 80px !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain !important;
+  display: block !important;
+  margin: 0 auto 12px auto !important;
+}
+
+.receipt-title {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+  color: #4b2c82;
+  margin-bottom: 10px;
+}
+
+  .print-btn,
+  .close-btn {
+    display: none !important;
+  }
+}
+/* --- PRINT ONLY THE RECEIPT PAGE --- */
+@media print {
+
+  /* Hide the entire site */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Show ONLY the receipt page */
+  .receipt-page,
+  .receipt-page * {
+    visibility: visible !important;
+  }
+
+  /* Ensure receipt prints full-page */
+  .receipt-page {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    padding: 30px 40px !important;
+    background: white !important;
+  }
+
+  /* Hide modal buttons */
+  .print-btn,
+  .close-btn {
+    display: none !important;
+  }
+}
+
