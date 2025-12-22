@@ -16,13 +16,20 @@ export default function ReceiptPrint() {
 
   if (!receipt) return <div className="p-6">No receipt data.</div>;
 
+  /* ================= NORMALIZE ITEMS ================= */
+  const items =
+    receipt.items ||
+    receipt.cartItems ||
+    receipt.products ||
+    [];
+
   /* ================= NORMALIZE TOTALS ================= */
   const totals = receipt.totals || {};
 
   let subtotal =
     receipt.subtotal ??
     totals.subtotal ??
-    0;
+    items.reduce((sum, i) => sum + (i.price || 0) * (i.qty || 1), 0);
 
   let tax =
     receipt.tax ??
@@ -32,7 +39,7 @@ export default function ReceiptPrint() {
   let total =
     receipt.total ??
     totals.total ??
-    0;
+    subtotal + tax;
 
   /* ================= DISCOUNT DETECTION ================= */
   let discountAmount = 0;
@@ -46,9 +53,8 @@ export default function ReceiptPrint() {
     discountLabel = "Discount";
   }
 
-  // Item-level discounts fallback
-  if (!discountAmount && receipt.items?.length) {
-    receipt.items.forEach((i) => {
+  if (!discountAmount && items.length) {
+    items.forEach((i) => {
       if (i.discountPercent) {
         discountAmount += (i.price * i.qty) * (i.discountPercent / 100);
         discountLabel = "Item Discount";
@@ -92,7 +98,6 @@ export default function ReceiptPrint() {
     ? `${receipt.vehicle.year || ""} ${receipt.vehicle.make || ""} ${receipt.vehicle.model || ""}`.trim()
     : "—";
 
-  /* ================= ACTIONS ================= */
   const print = () => window.print();
 
   return (
@@ -117,26 +122,6 @@ export default function ReceiptPrint() {
             {logo && <img src={logo} className="logo-img" alt="Logo" />}
           </div>
 
-          {/* TOP INFO */}
-          <div className="top-info-row">
-            <div>
-              <div className="label">Receipt #</div>
-              <div className="value">{receipt.id || "—"}</div>
-            </div>
-            <div>
-              <div className="label">Type</div>
-              <div className="value">{receipt.type || receipt.status || "Sale"}</div>
-            </div>
-            <div>
-              <div className="label">Date</div>
-              <div className="value">
-                {receipt.createdAt?.toDate
-                  ? receipt.createdAt.toDate().toLocaleDateString()
-                  : new Date().toLocaleDateString()}
-              </div>
-            </div>
-          </div>
-
           {/* CUSTOMER / VEHICLE */}
           <div className="from-to-section">
             <div>
@@ -149,9 +134,6 @@ export default function ReceiptPrint() {
             <div>
               <div className="section-title">Vehicle</div>
               <div className="value">{vehicleText}</div>
-              {receipt.installer && (
-                <div className="value">Installer: {receipt.installer.name}</div>
-              )}
             </div>
           </div>
 
@@ -167,31 +149,32 @@ export default function ReceiptPrint() {
               </tr>
             </thead>
             <tbody>
-              {receipt.items?.map((i) => (
-                <tr key={i.cartId || i.productId}>
-                  <td>
-                    {i.name}
-                    {i.sku && <div className="desc-sub">SKU: {i.sku}</div>}
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="text-center text-gray-400">
+                    No items
                   </td>
-                  <td>{i.qty}</td>
-                  <td align="right">${Number(i.price).toFixed(2)}</td>
-                  <td align="right">${(i.price * i.qty).toFixed(2)}</td>
                 </tr>
-              ))}
+              ) : (
+                items.map((i) => (
+                  <tr key={i.cartId || i.productId || i.id}>
+                    <td>
+                      {i.name}
+                      {i.sku && <div className="desc-sub">SKU: {i.sku}</div>}
+                    </td>
+                    <td>{i.qty || 1}</td>
+                    <td align="right">${Number(i.price || 0).toFixed(2)}</td>
+                    <td align="right">
+                      ${((i.price || 0) * (i.qty || 1)).toFixed(2)}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
 
           {/* TOTALS */}
           <div className="bottom-section">
-
-            {/* PAYMENT */}
-            <div className="payment-block">
-              <div className="section-title">Payment</div>
-              <div className="value">Method: {paymentMethod}</div>
-              {last4 && <div className="value">Card: •••• {last4}</div>}
-            </div>
-
-            {/* TOTALS */}
             <div className="totals-block">
               <div className="totals-row">
                 <span>Subtotal</span>

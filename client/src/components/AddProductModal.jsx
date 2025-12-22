@@ -10,6 +10,13 @@ import {
   orderBy
 } from "firebase/firestore";
 
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL
+} from "firebase/storage";
+
 const SPEAKER_SIZES = [
   "2.75",
   "3.5",
@@ -27,18 +34,25 @@ export default function AddProductModal({
   onSave,
   editingItem
 }) {
+  /* ================= STATE ================= */
+  const [saving, setSaving] = useState(false);
+
   const [form, setForm] = useState({
     name: "",
     sku: "",
-    barcode: "",       // ✅ ADDED
+    barcode: "",
     brand: "",
     subBrand: "",
     category: "",
-    speakerSize: "",   // ✅ ADDED (safe flat field)
+    speakerSize: "",
     cost: "",
     price: "",
-    stock: ""
+    stock: "",
+    imageUrl: null
   });
+
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
 
   const [brands, setBrands] = useState([]);
   const [subbrands, setSubbrands] = useState([]);
@@ -70,15 +84,18 @@ export default function AddProductModal({
       setForm({
         name: editingItem.name || "",
         sku: editingItem.sku || "",
-        barcode: editingItem.barcode || "",     // ✅ SAFE
+        barcode: editingItem.barcode || "",
         brand: editingItem.brand || "",
         subBrand: editingItem.subBrand || "",
         category: editingItem.category || "",
-        speakerSize: editingItem.speakerSize || "", // ✅ SAFE
+        speakerSize: editingItem.speakerSize || "",
         cost: editingItem.cost || "",
         price: editingItem.price || "",
-        stock: editingItem.stock || ""
+        stock: editingItem.stock || "",
+        imageUrl: editingItem.imageUrl || null
       });
+
+      setImagePreview(editingItem.imageUrl || null);
 
       const brand = brands.find(b => b.brandName === editingItem.brand);
       if (brand?.enableSubbrands) {
@@ -98,14 +115,17 @@ export default function AddProductModal({
         speakerSize: "",
         cost: "",
         price: "",
-        stock: ""
+        stock: "",
+        imageUrl: null
       });
+      setImageFile(null);
+      setImagePreview(null);
       setShowSubbrand(false);
     }
   }, [editingItem, brands]);
 
   /* -------------------------------
-     Handle brand change
+     Handlers
   -------------------------------- */
   const handleBrandChange = (value) => {
     setForm(prev => ({
@@ -132,12 +152,43 @@ export default function AddProductModal({
     }));
   };
 
-  const handleSubmit = () => {
-    onSave(form);
+  /* -------------------------------
+     Save (with image upload)
+  -------------------------------- */
+  const handleSubmit = async () => {
+    if (saving) return;
+    setSaving(true);
+
+    try {
+      let imageUrl = form.imageUrl || null;
+
+      if (imageFile) {
+        const storage = getStorage();
+        const imageRef = ref(
+          storage,
+          `products/${Date.now()}-${imageFile.name}`
+        );
+
+        await uploadBytes(imageRef, imageFile);
+        imageUrl = await getDownloadURL(imageRef);
+      }
+
+      await onSave({
+        ...form,
+        imageUrl
+      });
+
+    } catch (err) {
+      console.error("Image save failed:", err);
+      alert("Failed to save product");
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!isOpen) return null;
 
+  /* ================= UI ================= */
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
@@ -155,7 +206,7 @@ export default function AddProductModal({
 
           <input
             name="barcode"
-            placeholder="Barcode (scan or type)"   // ✅ NEW
+            placeholder="Barcode (scan or type)"
             value={form.barcode}
             onChange={handleChange}
           />
@@ -203,7 +254,7 @@ export default function AddProductModal({
             onChange={handleChange}
           />
 
-          {/* ✅ CONDITIONAL SPEAKER SIZE */}
+          {/* SPEAKER SIZE */}
           {form.category === "Speakers" && (
             <select
               name="speakerSize"
@@ -242,6 +293,26 @@ export default function AddProductModal({
             value={form.stock}
             onChange={handleChange}
           />
+
+          {/* IMAGE UPLOAD */}
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const file = e.target.files[0];
+              if (!file) return;
+              setImageFile(file);
+              setImagePreview(URL.createObjectURL(file));
+            }}
+          />
+
+          {imagePreview && (
+            <img
+              src={imagePreview}
+              alt="Preview"
+              className="h-24 object-contain rounded"
+            />
+          )}
         </div>
 
         <div className="modal-actions">
@@ -249,8 +320,16 @@ export default function AddProductModal({
             Cancel
           </button>
 
-          <button className="save-btn" onClick={handleSubmit}>
-            {editingItem ? "Save Changes" : "Add Product"}
+          <button
+            className="save-btn"
+            onClick={handleSubmit}
+            disabled={saving}
+          >
+            {saving
+              ? "Saving..."
+              : editingItem
+              ? "Save Changes"
+              : "Add Product"}
           </button>
         </div>
       </div>

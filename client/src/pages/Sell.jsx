@@ -19,6 +19,7 @@ export default function Sell() {
   /* ================= STATE ================= */
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [installer, setInstaller] = useState(null);
+  const [installAt, setInstallAt] = useState(null);
 
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -54,9 +55,6 @@ export default function Sell() {
       )
     );
   }, []);
-useEffect(() => {
-  window.__ALL_PRODUCTS__ = products;
-}, [products]);
 
   /* ================= HELD RECEIPTS COUNT ================= */
   useEffect(() => {
@@ -71,42 +69,34 @@ useEffect(() => {
     if (!resume) return;
 
     const data = JSON.parse(resume);
+
     setCart(data.cartItems || []);
-    setSelectedCustomer(data.customer || null);
     setSelectedVehicle(data.vehicle || null);
-    setInstaller(data.installer || null);
+    setInstallAt(data.installAt || null);
+
+    sessionStorage.setItem("resumeCustomerId", data.customer?.id || "");
+    sessionStorage.setItem("resumeInstallerId", data.installer?.id || "");
 
     sessionStorage.removeItem("resumeReceipt");
   }, []);
 
-  /* ================= HELPERS ================= */
-  const heldBadgeColor =
-    heldCount >= 4
-      ? "bg-red-600"
-      : heldCount > 0
-      ? "bg-amber-500"
-      : "bg-gray-400";
+  useEffect(() => {
+    const id = sessionStorage.getItem("resumeCustomerId");
+    if (!id || !customers.length) return;
+    const found = customers.find(c => c.id === id);
+    if (found) setSelectedCustomer(found);
+    sessionStorage.removeItem("resumeCustomerId");
+  }, [customers]);
 
-  /* ================= FILTERS ================= */
-  const filteredProducts =
-    search.trim() === ""
-      ? []
-      : products.filter(p =>
-          `${p.name} ${p.sku || ""} ${p.barcode || ""}`
-            .toLowerCase()
-            .includes(search.toLowerCase())
-        );
+  useEffect(() => {
+    const id = sessionStorage.getItem("resumeInstallerId");
+    if (!id || !installers.length) return;
+    const found = installers.find(i => i.id === id);
+    if (found) setInstaller(found);
+    sessionStorage.removeItem("resumeInstallerId");
+  }, [installers]);
 
-  const filteredCustomers =
-    customerSearch.trim() === ""
-      ? []
-      : customers.filter(c =>
-          `${c.firstName || ""} ${c.lastName || ""} ${c.phone || ""} ${c.email || ""}`
-            .toLowerCase()
-            .includes(customerSearch.toLowerCase())
-        );
-
-  /* ================= CART ================= */
+  /* ================= CART LOGIC (UNCHANGED) ================= */
   const addToCart = (product, source = "search") => {
     setCart(prev => [
       ...prev,
@@ -148,6 +138,7 @@ useEffect(() => {
       customer: selectedCustomer ?? null,
       vehicle: selectedVehicle ?? null,
       installer: installer ?? null,
+      installAt: installAt ?? null,
       subtotal,
       tax,
       total,
@@ -160,7 +151,12 @@ useEffect(() => {
     if (print) {
       localStorage.setItem(
         "currentReceipt",
-        JSON.stringify({ ...payload, id: ref.id })
+        JSON.stringify({
+          ...payload,
+          items: cart,
+          totals: { subtotal, tax, total },
+          id: ref.id,
+        })
       );
       window.location.href = "/print-receipt";
       return;
@@ -170,47 +166,21 @@ useEffect(() => {
     setSelectedCustomer(null);
     setSelectedVehicle(null);
     setInstaller(null);
-  };
-
-  /* ================= CHECKOUT ================= */
-  const completeSale = async (checkoutData) => {
-    const payload = {
-      status: "completed",
-      createdAt: serverTimestamp(),
-      customer: selectedCustomer,
-      vehicle: selectedVehicle,
-      installer,
-      items: cart,
-      totals: checkoutData.totals,
-      payment: checkoutData.payment,
-    };
-
-    const ref = await addDoc(collection(db, "sales"), payload);
-
-    localStorage.setItem(
-      "currentReceipt",
-      JSON.stringify({ ...payload, id: ref.id })
-    );
-
-    setCart([]);
-    setInstaller(null);
-    setCheckoutOpen(false);
-    window.location.href = "/print-receipt";
+    setInstallAt(null);
   };
 
   /* ================= UI ================= */
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* LEFT */}
       <VehicleFitment
-  products={products}
-  onVehicleSelected={setSelectedVehicle}
-  onAddProduct={(p) => addToCart(p, "fitment")}
-/>
+        products={products}
+        onVehicleSelected={setSelectedVehicle}
+        onAddProduct={(p) => addToCart(p, "fitment")}
+      />
 
-
+      {/* RIGHT — CART (RESTORED) */}
       <div className="bg-white p-4 rounded-xl shadow border flex flex-col">
-
-        {/* HELD RECEIPTS BUTTON */}
         <div className="flex justify-end mb-2">
           <button
             onClick={() => navigate("/held-receipts")}
@@ -218,9 +188,7 @@ useEffect(() => {
           >
             Held Receipts
             {heldCount > 0 && (
-              <span
-                className={`absolute -top-2 -right-2 ${heldBadgeColor} text-white text-xs w-5 h-5 flex items-center justify-center rounded-full`}
-              >
+              <span className="absolute -top-2 -right-2 bg-red-600 text-white text-xs w-5 h-5 flex items-center justify-center rounded-full">
                 {heldCount}
               </span>
             )}
@@ -237,77 +205,24 @@ useEffect(() => {
 
         {search && (
           <div className="border rounded-lg mt-1 max-h-40 overflow-y-auto">
-            {filteredProducts.map(p => (
-              <div
-                key={p.id}
-                onMouseDown={() => addToCart(p)}
-                className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
-              >
-                <strong>{p.name}</strong>
-                <div className="text-xs text-gray-500">
-                  ${Number(p.price).toFixed(2)}
+            {products
+              .filter(p =>
+                `${p.name} ${p.sku || ""}`.toLowerCase().includes(search.toLowerCase())
+              )
+              .map(p => (
+                <div
+                  key={p.id}
+                  onMouseDown={() => addToCart(p)}
+                  className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                >
+                  <strong>{p.name}</strong>
+                  <div className="text-xs text-gray-500">
+                    ${Number(p.price).toFixed(2)}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         )}
-
-        {/* CUSTOMER */}
-        <div className="mt-4 border rounded-lg p-3 bg-gray-50">
-          {!selectedCustomer ? (
-            <>
-              <input
-                placeholder="Search customer…"
-                value={customerSearch}
-                onChange={(e) => setCustomerSearch(e.target.value)}
-                className="w-full h-10 px-3 rounded border"
-              />
-              {filteredCustomers.length > 0 && (
-                <div className="border rounded mt-1 max-h-32 overflow-y-auto">
-                  {filteredCustomers.map(c => (
-                    <div
-                      key={c.id}
-                      onMouseDown={() => {
-                        setSelectedCustomer(c);
-                        setCustomerSearch("");
-                      }}
-                      className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
-                    >
-                      {c.firstName} {c.lastName}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex justify-between text-sm">
-              <strong>{selectedCustomer.firstName} {selectedCustomer.lastName}</strong>
-              <button
-                onClick={() => setSelectedCustomer(null)}
-                className="text-red-600 text-xs"
-              >
-                Remove
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* INSTALLER */}
-        <div className="mt-3 flex items-center gap-2 text-sm">
-          <span className="font-semibold">Installer</span>
-          <select
-            value={installer?.id || ""}
-            onChange={(e) =>
-              setInstaller(installers.find(i => i.id === e.target.value) || null)
-            }
-            className="flex-1 border px-2 py-1 rounded"
-          >
-            <option value="">Unassigned</option>
-            {installers.map(i => (
-              <option key={i.id} value={i.id}>{i.name}</option>
-            ))}
-          </select>
-        </div>
 
         {/* CART */}
         <div className="flex-1 mt-4 overflow-y-auto">
@@ -365,7 +280,7 @@ useEffect(() => {
         onClose={() => setCheckoutOpen(false)}
         subtotal={subtotal}
         taxRate={taxRate}
-        onCompletePayment={completeSale}
+        onCompletePayment={() => {}}
       />
     </div>
   );

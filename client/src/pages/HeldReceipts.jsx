@@ -7,11 +7,34 @@ import {
   doc,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import ScheduleInstallModal from "../components/ScheduleInstallModal";
+
+/* ===============================
+   STATUS LABEL HELPER
+================================ */
+function statusLabel(status) {
+  switch (status) {
+    case "scheduled":
+      return { text: "🗓️ Scheduled", className: "status scheduled" };
+    case "in_progress":
+      return { text: "🔧 In Progress", className: "status in-progress" };
+    case "completed":
+      return { text: "✅ Completed", className: "status completed" };
+    default:
+      return { text: "⏸ Held", className: "status held" };
+  }
+}
 
 export default function HeldReceipts() {
   const [receipts, setReceipts] = useState([]);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
+
   const navigate = useNavigate();
 
+  /* ===============================
+     LOAD HELD RECEIPTS
+  ================================ */
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "heldReceipts"), (snap) => {
       setReceipts(
@@ -25,10 +48,35 @@ export default function HeldReceipts() {
     return unsub;
   }, []);
 
+  /* ===============================
+     RESUME RECEIPT
+  ================================ */
   const resumeReceipt = async (receipt) => {
     sessionStorage.setItem("resumeReceipt", JSON.stringify(receipt));
     await deleteDoc(doc(db, "heldReceipts", receipt.id));
     navigate("/sell");
+  };
+
+  /* ===============================
+     PRINT RECEIPT (NO DELETE)
+  ================================ */
+  const printReceipt = (receipt) => {
+    const printable = {
+      ...receipt,
+      items: receipt.cartItems || [],
+      totals: {
+        subtotal: receipt.subtotal,
+        tax: receipt.tax,
+        total: receipt.total,
+      },
+    };
+
+    localStorage.setItem(
+      "currentReceipt",
+      JSON.stringify(printable)
+    );
+
+    window.open("/print-receipt", "_blank");
   };
 
   return (
@@ -40,36 +88,98 @@ export default function HeldReceipts() {
       )}
 
       <div className="space-y-3">
-        {receipts.map((r) => (
-          <div
-            key={r.id}
-            className="border rounded-lg p-4 flex justify-between items-center"
-          >
-            <div>
-              <div className="font-semibold">
-                {r.customer
-                  ? `${r.customer.firstName} ${r.customer.lastName}`
-                  : "No Customer"}
+        {receipts.map((r) => {
+          const status = r.status || "held";
+          const badge = statusLabel(status);
+          const vehicle = r.vehicle || null;
+          const installAt = r.installAt || null;
+
+          return (
+            <div
+              key={r.id}
+              className="border rounded-lg p-4 flex justify-between items-center"
+            >
+              {/* LEFT */}
+              <div className="space-y-1">
+                <div className="font-semibold">
+                  {r.customer
+                    ? `${r.customer.firstName} ${r.customer.lastName}`
+                    : "No Customer"}
+                </div>
+
+                <div className="text-sm text-gray-500">
+                  Items: {r.cartItems?.length || 0}
+                </div>
+
+                <div className="text-sm">
+                  Total: ${Number(r.total || 0).toFixed(2)}
+                </div>
+
+                {vehicle ? (
+                  <div className="text-xs text-gray-600">
+                    🚗 {vehicle.year} {vehicle.make} {vehicle.model}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-400">
+                    No vehicle assigned
+                  </div>
+                )}
+
+                {installAt ? (
+                  <div className="text-xs text-gray-600">
+                    📅{" "}
+                    {new Date(installAt.seconds * 1000).toLocaleString()}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-400">
+                    Not scheduled
+                  </div>
+                )}
               </div>
 
-              <div className="text-sm text-gray-500">
-                Items: {r.cartItems?.length || 0}
-              </div>
+              {/* RIGHT */}
+              <div className="flex flex-col items-end gap-2">
+                <span className={badge.className}>{badge.text}</span>
 
-              <div className="text-sm">
-                Total: ${Number(r.total || 0).toFixed(2)}
+                <button
+                  onClick={() => resumeReceipt(r)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded text-sm"
+                >
+                  Resume
+                </button>
+
+                <button
+                  onClick={() => printReceipt(r)}
+                  className="bg-gray-100 border px-4 py-1.5 rounded text-sm hover:bg-gray-200"
+                >
+                  🖨 Print
+                </button>
+
+                {(status === "held" || status === "scheduled") && (
+                  <button
+                    className="text-xs px-2 py-1 border rounded hover:bg-gray-100"
+                    onClick={() => {
+                      setSelectedReceipt(r);
+                      setShowScheduleModal(true);
+                    }}
+                  >
+                    🗓️ Schedule Install
+                  </button>
+                )}
               </div>
             </div>
-
-            <button
-              onClick={() => resumeReceipt(r)}
-              className="bg-blue-600 text-white px-4 py-2 rounded"
-            >
-              Resume
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      <ScheduleInstallModal
+        open={showScheduleModal}
+        receipt={selectedReceipt}
+        onClose={() => {
+          setShowScheduleModal(false);
+          setSelectedReceipt(null);
+        }}
+      />
     </div>
   );
 }
