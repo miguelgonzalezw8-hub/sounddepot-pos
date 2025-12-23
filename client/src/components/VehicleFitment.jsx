@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   getYearOptions,
   getMakeOptions,
@@ -6,7 +6,10 @@ import {
   findFitment,
 } from "../utils/fitmentEngine";
 import { matchProductsToVehicle } from "../utils/fitmentMatcher";
-import { matchAccessoriesToVehicle, getAllowedDinSizes } from "../utils/accessoryMatcher";
+import {
+  matchAccessoriesToVehicle,
+  getAllowedDinSizes,
+} from "../utils/accessoryMatcher";
 import FilterProductsModal from "./FilterProductsModal";
 
 /* ================= FITMENT NORMALIZATION HELPERS ================= */
@@ -48,7 +51,8 @@ function getLocLabel(loc, idx = 0) {
   ];
 
   for (const c of candidates) {
-    if (typeof c === "string" && c.trim()) return normalizeLocationLabel(c);
+    if (typeof c === "string" && c.trim())
+      return normalizeLocationLabel(c);
   }
 
   const fallbackByIndex = [
@@ -60,7 +64,8 @@ function getLocLabel(loc, idx = 0) {
     "Rear Side Panel",
   ];
 
-  if (loc?.sizes?.length) return fallbackByIndex[idx] || `Location ${idx + 1}`;
+  if (loc?.sizes?.length)
+    return fallbackByIndex[idx] || `Location ${idx + 1}`;
   return `Location ${idx + 1}`;
 }
 
@@ -85,7 +90,8 @@ function getLocSizes(loc) {
     loc?.fitSizes ??
     [];
 
-  if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
+  if (Array.isArray(raw))
+    return raw.map((x) => String(x).trim()).filter(Boolean);
 
   if (raw && typeof raw === "object") {
     return Object.values(raw)
@@ -124,10 +130,7 @@ function normSize(s) {
     .trim();
 }
 
-/* ================= CATEGORY BUCKETING =================
-   We bucket by SKU patterns + category text.
-   This makes the modal conditional without clutter.
-*/
+/* ================= CATEGORY BUCKETING ================= */
 
 function getSkuCandidate(p) {
   return (
@@ -145,31 +148,26 @@ function bucketForProduct(p) {
   const cat = String(p?.category || "").toLowerCase();
   const sku = String(getSkuCandidate(p)).toUpperCase();
 
-  // Speakers (prefer actual speaker fields)
   if (isSpeakerProduct(p) || cat.includes("speaker")) return "Speakers";
-
-  // Radios
   if (cat.includes("radio") || cat.includes("head unit")) return "Radios";
-
-  // Dash Kits (Metra common prefixes)
   if (cat.includes("dash") || cat.includes("kit") || sku.startsWith("95-") || sku.startsWith("99-"))
     return "Dash Kits";
-
-  // Harnesses
   if (cat.includes("harness") || sku.startsWith("70-") || sku.startsWith("71-") || sku.includes("HRN-"))
     return "Harnesses";
-
-  // Antennas
   if (cat.includes("antenna") || sku.startsWith("40-")) return "Antennas";
-
-  // Interfaces / modules (Maestro/PAC/etc — not a brand category)
   if (cat.includes("interface") || cat.includes("module") || sku.startsWith("ADS-") || sku.includes("RR"))
     return "Interfaces";
 
   return "Accessories";
 }
 
-export default function VehicleFitment({ products = [], onAddProduct, onVehicleSelected }) {
+export default function VehicleFitment({
+  products = [],
+  selectedVehicle,        // ✅ ADD
+  onAddProduct,
+  onVehicleSelected,
+}) {
+
   /* ================= VEHICLE ================= */
   const [year, setYear] = useState("");
   const [make, setMake] = useState("");
@@ -187,12 +185,15 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
   const [showFilters, setShowFilters] = useState(false);
 
   /* ================= FILTERS ================= */
-  const [bucket, setBucket] = useState("All"); // All / Speakers / Dash Kits / etc
+  const [bucket, setBucket] = useState("All");
   const [brand, setBrand] = useState("All");
   const [location, setLocation] = useState("All");
-  const [din, setDin] = useState("All"); // Radios only: All / Single / Double
+  const [din, setDin] = useState("All");
 
-  /* ================= LOAD YEARS (REMOVE MID-YEARS) ================= */
+  /* ================= MOUNT GUARD (FIX) ================= */
+  const hasMountedRef = useRef(false);
+
+  /* ================= LOAD YEARS ================= */
   useEffect(() => {
     getYearOptions().then((yrs) => {
       const cleanYears = Array.from(
@@ -217,12 +218,28 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
     getModelOptions(Number(year), make).then(setModels);
   }, [year, make]);
 
-  /* ================= FIND FITMENT (ASYNC SAFE) ================= */
+
   useEffect(() => {
+  if (!selectedVehicle) return;
+
+  hasMountedRef.current = true;
+  
+  setYear(String(selectedVehicle.year || ""));
+  setMake(selectedVehicle.make || "");
+  setModel(selectedVehicle.model || "");
+}, [selectedVehicle]);
+
+  /* ================= FIND FITMENT (FIXED) ================= */
+  useEffect(() => {
+    // ⛔ prevent clearing restored vehicle on initial mount
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+
     if (!year || !make || !model) {
       setFitment(null);
-      onVehicleSelected?.(null);
-      return;
+      return; // ⛔ DO NOT clear parent vehicle
     }
 
     let cancelled = false;
@@ -233,7 +250,6 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
 
       setFitment(f || null);
 
-      // Reset filters on vehicle change
       setBucket("All");
       setBrand("All");
       setLocation("All");
@@ -271,7 +287,6 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
       products
     );
 
-    // De-dupe by id
     const map = new Map();
     [...speakerMatches, ...accessoryMatches].forEach((p) => {
       if (p?.id) map.set(p.id, p);
@@ -279,8 +294,11 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
     return Array.from(map.values());
   }, [fitment, products, year]);
 
-  /* ================= LOCATION OPTIONS (YOUR WORKING ONE) ================= */
-  const locRows = useMemo(() => normalizeLocationsFromFitment(fitment), [fitment]);
+  /* ================= LOCATION OPTIONS ================= */
+  const locRows = useMemo(
+    () => normalizeLocationsFromFitment(fitment),
+    [fitment]
+  );
 
   const locationOptions = useMemo(() => {
     const set = new Set();
@@ -307,11 +325,9 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
     return counts;
   }, [recommended]);
 
-  /* ================= BRAND OPTIONS (CONDITIONAL) ================= */
+  /* ================= BRAND OPTIONS ================= */
   const brandOptions = useMemo(() => {
     const set = new Set();
-
-    // base list depends on current bucket selection
     const base =
       bucket === "All"
         ? recommended
@@ -321,23 +337,22 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
     return ["All", ...Array.from(set).sort()];
   }, [recommended, bucket]);
 
-  /* ================= FILTERED PRODUCTS (CONDITIONAL) ================= */
+  /* ================= FILTERED PRODUCTS ================= */
   const filteredProducts = useMemo(() => {
     let list = [...recommended];
 
-    // bucket filter
     if (bucket !== "All") {
       list = list.filter((p) => bucketForProduct(p) === bucket);
     }
 
-    // brand filter
     if (brand !== "All") {
       list = list.filter((p) => p.brand === brand);
     }
 
-    // speaker location filter ONLY for speakers bucket
     if (bucket === "Speakers" && location !== "All") {
-      const row = locRows.find((r) => prettyLocationLabel(r.label) === location);
+      const row = locRows.find(
+        (r) => prettyLocationLabel(r.label) === location
+      );
       const allowed = new Set((row?.sizes || []).map(normSize));
 
       list = list.filter((p) => {
@@ -351,9 +366,7 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
       });
     }
 
-    // radio DIN filter ONLY for radios bucket
     if (bucket === "Radios" && din !== "All") {
-      // gate radios based on allowed DIN sizes from Metra dashkits
       const allowed = getAllowedDinSizes({
         year: Number(year),
         make: fitment?.make || make,
@@ -361,14 +374,9 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
         trim: fitment?.raw?.trim || "",
       });
 
-      const allowSingle = allowed.singleDin;
-      const allowDouble = allowed.doubleDin;
-
-      // If Metra says no kit exists, hide that radio size
-      list = list.filter((p) => {
-        const size = String(p.radioSize || p.din || "").toLowerCase(); // optional future field
-        if (din === "Single") return allowSingle;
-        if (din === "Double") return allowDouble;
+      list = list.filter(() => {
+        if (din === "Single") return allowed.singleDin;
+        if (din === "Double") return allowed.doubleDin;
         return true;
       });
     }
@@ -381,7 +389,6 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
     <div className="space-y-3 border p-3 rounded-lg bg-gray-50">
       <h3 className="text-sm font-semibold">Vehicle Fitment</h3>
 
-      {/* SELECTORS — KEEP YOUR ORIGINAL STYLING */}
       <div className="grid grid-cols-3 gap-2">
         <select
           value={year}
@@ -394,9 +401,7 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
         >
           <option value="">Year</option>
           {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
+            <option key={y} value={y}>{y}</option>
           ))}
         </select>
 
@@ -411,9 +416,7 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
         >
           <option value="">Make</option>
           {makes.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
+            <option key={m} value={m}>{m}</option>
           ))}
         </select>
 
@@ -425,14 +428,11 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
         >
           <option value="">Model</option>
           {models.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
+            <option key={m} value={m}>{m}</option>
           ))}
         </select>
       </div>
 
-      {/* FILTER BUTTON */}
       {fitment && (
         <button
           onClick={() => setShowFilters(true)}
@@ -442,12 +442,13 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
         </button>
       )}
 
-      {/* PRODUCT GRID — KEEP YOUR “SEE MORE AT A TIME” HEIGHT */}
       {fitment && (
         <div className="max-h-[80vh] overflow-y-auto">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {filteredProducts.length === 0 ? (
-              <div className="col-span-full text-xs text-gray-500">No matches</div>
+              <div className="col-span-full text-xs text-gray-500">
+                No matches
+              </div>
             ) : (
               filteredProducts.map((p) => (
                 <button
@@ -467,7 +468,9 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
                     )}
                   </div>
 
-                  <div className="text-sm font-semibold line-clamp-2">{p.name}</div>
+                  <div className="text-sm font-semibold line-clamp-2">
+                    {p.name}
+                  </div>
                   <div className="text-[11px] text-gray-500 mt-1">
                     {(p.sku || p.name || "—")} • {p.brand || "—"}
                   </div>
@@ -481,13 +484,11 @@ export default function VehicleFitment({ products = [], onAddProduct, onVehicleS
         </div>
       )}
 
-      {/* FILTER MODAL (CONDITIONAL UI) */}
       <FilterProductsModal
         open={showFilters}
         onClose={() => setShowFilters(false)}
         bucket={bucket}
         setBucket={(b) => {
-          // when switching bucket, reset bucket-specific filters
           setBucket(b);
           setBrand("All");
           setLocation("All");

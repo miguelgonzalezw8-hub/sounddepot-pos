@@ -38,32 +38,33 @@ export default function Sell() {
   useEffect(() => {
     return onSnapshot(
       query(collection(db, "products"), where("active", "==", true)),
-      (snap) => setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      (snap) =>
+        setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     );
   }, []);
 
   useEffect(() => {
-    return onSnapshot(collection(db, "customers"), snap =>
-      setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    return onSnapshot(collection(db, "customers"), (snap) =>
+      setCustomers(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     );
   }, []);
 
   useEffect(() => {
-    return onSnapshot(collection(db, "installers"), snap =>
+    return onSnapshot(collection(db, "installers"), (snap) =>
       setInstallers(
-        snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => i.active)
+        snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((i) => i.active)
       )
     );
   }, []);
 
-  /* ================= HELD RECEIPTS COUNT ================= */
+  /* ================= HELD COUNT ================= */
   useEffect(() => {
-    return onSnapshot(collection(db, "heldReceipts"), snap =>
+    return onSnapshot(collection(db, "heldReceipts"), (snap) =>
       setHeldCount(snap.size)
     );
   }, []);
 
-  /* ================= RESUME HELD RECEIPT ================= */
+  /* ================= RESUME HELD ================= */
   useEffect(() => {
     const resume = sessionStorage.getItem("resumeReceipt");
     if (!resume) return;
@@ -83,7 +84,7 @@ export default function Sell() {
   useEffect(() => {
     const id = sessionStorage.getItem("resumeCustomerId");
     if (!id || !customers.length) return;
-    const found = customers.find(c => c.id === id);
+    const found = customers.find((c) => c.id === id);
     if (found) setSelectedCustomer(found);
     sessionStorage.removeItem("resumeCustomerId");
   }, [customers]);
@@ -91,14 +92,14 @@ export default function Sell() {
   useEffect(() => {
     const id = sessionStorage.getItem("resumeInstallerId");
     if (!id || !installers.length) return;
-    const found = installers.find(i => i.id === id);
+    const found = installers.find((i) => i.id === id);
     if (found) setInstaller(found);
     sessionStorage.removeItem("resumeInstallerId");
   }, [installers]);
 
-  /* ================= CART LOGIC (UNCHANGED) ================= */
+  /* ================= CART ================= */
   const addToCart = (product, source = "search") => {
-    setCart(prev => [
+    setCart((prev) => [
       ...prev,
       {
         cartId: crypto.randomUUID(),
@@ -113,15 +114,15 @@ export default function Sell() {
   };
 
   const updateQty = (id, delta) => {
-    setCart(prev =>
+    setCart((prev) =>
       prev
-        .map(i => (i.cartId === id ? { ...i, qty: i.qty + delta } : i))
-        .filter(i => i.qty > 0)
+        .map((i) => (i.cartId === id ? { ...i, qty: i.qty + delta } : i))
+        .filter((i) => i.qty > 0)
     );
   };
 
   const removeItem = (id) =>
-    setCart(prev => prev.filter(i => i.cartId !== id));
+    setCart((prev) => prev.filter((i) => i.cartId !== id));
 
   /* ================= TOTALS ================= */
   const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
@@ -151,12 +152,7 @@ export default function Sell() {
     if (print) {
       localStorage.setItem(
         "currentReceipt",
-        JSON.stringify({
-          ...payload,
-          items: cart,
-          totals: { subtotal, tax, total },
-          id: ref.id,
-        })
+        JSON.stringify({ ...payload, id: ref.id })
       );
       window.location.href = "/print-receipt";
       return;
@@ -175,18 +171,78 @@ export default function Sell() {
       {/* LEFT */}
       <VehicleFitment
         products={products}
+        selectedVehicle={selectedVehicle}
         onVehicleSelected={setSelectedVehicle}
         onAddProduct={(p) => addToCart(p, "fitment")}
       />
 
-      {/* RIGHT — CART (RESTORED) */}
+      {/* RIGHT */}
       <div className="bg-white p-4 rounded-xl shadow border flex flex-col">
-        <div className="flex justify-end mb-2">
+        {/* CUSTOMER + HELD */}
+        <div className="flex gap-2 mb-2">
+          <div className="flex-1">
+            {!selectedCustomer ? (
+              <>
+                <input
+                  placeholder="Search customer…"
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  className="w-full h-10 px-3 rounded-lg border"
+                />
+                {customerSearch && (
+                  <div className="border rounded-lg mt-1 max-h-40 overflow-y-auto bg-white">
+                    {customers
+                      .filter((c) =>
+                        `${c.firstName || ""} ${c.lastName || ""} ${
+                          c.companyName || ""
+                        } ${c.phone || ""}`
+                          .toLowerCase()
+                          .includes(customerSearch.toLowerCase())
+                      )
+                      .map((c) => (
+                        <div
+                          key={c.id}
+                          onMouseDown={() => {
+                            setSelectedCustomer(c);
+                            setCustomerSearch("");
+                          }}
+                          className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                        >
+                          <strong>
+                            {c.companyName ||
+                              `${c.firstName || ""} ${c.lastName || ""}`}
+                          </strong>
+                          {c.phone && (
+                            <div className="text-xs text-gray-500">
+                              {c.phone}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex justify-between items-center bg-gray-100 px-3 py-2 rounded-lg">
+                <span className="font-semibold text-sm">
+                  {selectedCustomer.companyName ||
+                    `${selectedCustomer.firstName || ""} ${selectedCustomer.lastName || ""}`}
+                </span>
+                <button
+                  onClick={() => setSelectedCustomer(null)}
+                  className="text-xs text-red-600"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={() => navigate("/held-receipts")}
             className="relative px-4 py-1.5 rounded-md border bg-gray-50 hover:bg-gray-100 text-sm font-semibold"
           >
-            Held Receipts
+            Held
             {heldCount > 0 && (
               <span className="absolute -top-2 -right-2 bg-red-600 text-white text-xs w-5 h-5 flex items-center justify-center rounded-full">
                 {heldCount}
@@ -195,7 +251,34 @@ export default function Sell() {
           </button>
         </div>
 
-        {/* SEARCH */}
+        {/* INSTALLER + APPOINTMENT */}
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <select
+            value={installer?.id || ""}
+            onChange={(e) =>
+              setInstaller(
+                installers.find((i) => i.id === e.target.value) || null
+              )
+            }
+            className="h-10 px-2 rounded-lg border"
+          >
+            <option value="">Select installer…</option>
+            {installers.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.name}
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="datetime-local"
+            value={installAt || ""}
+            onChange={(e) => setInstallAt(e.target.value)}
+            className="h-10 px-2 rounded-lg border"
+          />
+        </div>
+
+        {/* PRODUCT SEARCH */}
         <input
           placeholder="Search or scan product…"
           value={search}
@@ -206,10 +289,12 @@ export default function Sell() {
         {search && (
           <div className="border rounded-lg mt-1 max-h-40 overflow-y-auto">
             {products
-              .filter(p =>
-                `${p.name} ${p.sku || ""}`.toLowerCase().includes(search.toLowerCase())
+              .filter((p) =>
+                `${p.name} ${p.sku || ""}`
+                  .toLowerCase()
+                  .includes(search.toLowerCase())
               )
-              .map(p => (
+              .map((p) => (
                 <div
                   key={p.id}
                   onMouseDown={() => addToCart(p)}
@@ -226,15 +311,23 @@ export default function Sell() {
 
         {/* CART */}
         <div className="flex-1 mt-4 overflow-y-auto">
-          {cart.map(i => (
-            <div key={i.cartId} className="border-b py-2 flex justify-between text-sm">
+          {cart.map((i) => (
+            <div
+              key={i.cartId}
+              className="border-b py-2 flex justify-between text-sm"
+            >
               <span>{i.name}</span>
               <div className="flex items-center gap-2">
                 <button onClick={() => updateQty(i.cartId, -1)}>-</button>
                 <span>{i.qty}</span>
                 <button onClick={() => updateQty(i.cartId, 1)}>+</button>
                 <span>${(i.price * i.qty).toFixed(2)}</span>
-                <button onClick={() => removeItem(i.cartId)} className="text-red-600">✕</button>
+                <button
+                  onClick={() => removeItem(i.cartId)}
+                  className="text-red-600"
+                >
+                  ✕
+                </button>
               </div>
             </div>
           ))}
@@ -275,12 +368,29 @@ export default function Sell() {
         </div>
       </div>
 
+      {/* CHECKOUT MODAL */}
       <CheckoutModal
         isOpen={checkoutOpen}
         onClose={() => setCheckoutOpen(false)}
         subtotal={subtotal}
         taxRate={taxRate}
-        onCompletePayment={() => {}}
+        onCompletePayment={({ payment, totals }) => {
+          const receipt = {
+            cartItems: cart,
+            customer: selectedCustomer ?? null,
+            vehicle: selectedVehicle ?? null,
+            installer: installer ?? null,
+            installAt: installAt ?? null,
+            payment,
+            subtotal: totals.subtotal,
+            tax: totals.tax,
+            total: totals.total,
+          };
+
+          localStorage.setItem("currentReceipt", JSON.stringify(receipt));
+          setCheckoutOpen(false);
+          window.location.href = "/print-receipt";
+        }}
       />
     </div>
   );

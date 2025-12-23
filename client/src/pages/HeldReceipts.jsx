@@ -49,25 +49,43 @@ export default function HeldReceipts() {
   }, []);
 
   /* ===============================
-     RESUME RECEIPT
+     RESUME RECEIPT (FIXED FOR REAL)
+     READ-ONLY + NORMALIZED
   ================================ */
-  const resumeReceipt = async (receipt) => {
-    sessionStorage.setItem("resumeReceipt", JSON.stringify(receipt));
-    await deleteDoc(doc(db, "heldReceipts", receipt.id));
+  const resumeReceipt = (r) => {
+    sessionStorage.setItem(
+      "resumeReceipt",
+      JSON.stringify({
+        cartItems: r.cartItems || [],
+        customer: r.customer || null,
+        vehicle: r.vehicle || null,       // ✅ VEHICLE PRESERVED
+        installer: r.installer || null,
+        installAt: r.installAt || null,
+      })
+    );
+
     navigate("/sell");
   };
 
   /* ===============================
-     PRINT RECEIPT (NO DELETE)
+     DELETE HELD RECEIPT (NEW)
   ================================ */
-  const printReceipt = (receipt) => {
+  const deleteReceipt = async (r) => {
+    if (!window.confirm("Delete this held receipt?")) return;
+    await deleteDoc(doc(db, "heldReceipts", r.id));
+  };
+
+  /* ===============================
+     PRINT RECEIPT (UNCHANGED)
+  ================================ */
+  const printReceipt = (r) => {
     const printable = {
-      ...receipt,
-      items: receipt.cartItems || [],
+      ...r,
+      items: r.cartItems || [],
       totals: {
-        subtotal: receipt.subtotal,
-        tax: receipt.tax,
-        total: receipt.total,
+        subtotal: r.subtotal,
+        tax: r.tax,
+        total: r.total,
       },
     };
 
@@ -126,15 +144,18 @@ export default function HeldReceipts() {
                 )}
 
                 {installAt ? (
-                  <div className="text-xs text-gray-600">
-                    📅{" "}
-                    {new Date(installAt.seconds * 1000).toLocaleString()}
-                  </div>
-                ) : (
-                  <div className="text-xs text-gray-400">
-                    Not scheduled
-                  </div>
-                )}
+                <div className="text-xs text-gray-600">
+                  📅{" "}
+                  {typeof installAt === "string"
+                    ? new Date(installAt).toLocaleString()
+                    : new Date(installAt.seconds * 1000).toLocaleString()}
+                </div>
+              ) : (
+                <div className="text-xs text-gray-400">
+                  Not scheduled
+                </div>
+              )}
+
               </div>
 
               {/* RIGHT */}
@@ -153,6 +174,13 @@ export default function HeldReceipts() {
                   className="bg-gray-100 border px-4 py-1.5 rounded text-sm hover:bg-gray-200"
                 >
                   🖨 Print
+                </button>
+
+                <button
+                  onClick={() => deleteReceipt(r)}
+                  className="bg-red-600 text-white px-4 py-1.5 rounded text-sm"
+                >
+                  🗑 Delete
                 </button>
 
                 {(status === "held" || status === "scheduled") && (
