@@ -2,37 +2,23 @@
 import { useState, useEffect } from "react";
 import "./AddProductModal.css";
 
-import { db } from "../firebase";
-import {
-  collection,
-  onSnapshot,
-  query,
-  orderBy
-} from "firebase/firestore";
+import { db, storage } from "../firebase";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 
 import {
-  getStorage,
   ref,
-  uploadBytes,
-  getDownloadURL
+  uploadBytesResumable,
+  getDownloadURL,
+  deleteObject,
 } from "firebase/storage";
 
-const SPEAKER_SIZES = [
-  "2.75",
-  "3.5",
-  "4",
-  "5.25",
-  "6.5",
-  "6x8",
-  "6x9",
-  "8"
-];
+const SPEAKER_SIZES = ["2.75", "3.5", "4", "5.25", "6.5", "6x8", "6x9", "8"];
 
 export default function AddProductModal({
   isOpen,
   onClose,
   onSave,
-  editingItem
+  editingItem,
 }) {
   /* ================= STATE ================= */
   const [saving, setSaving] = useState(false);
@@ -48,7 +34,8 @@ export default function AddProductModal({
     cost: "",
     price: "",
     stock: "",
-    imageUrl: null
+    imageUrl: null,
+    imagePath: "",
   });
 
   const [imageFile, setImageFile] = useState(null);
@@ -68,7 +55,7 @@ export default function AddProductModal({
       setBrands(
         snapshot.docs.map((doc) => ({
           id: doc.id,
-          ...doc.data()
+          ...doc.data(),
         }))
       );
     });
@@ -77,9 +64,16 @@ export default function AddProductModal({
   }, []);
 
   /* -------------------------------
-     Preload form when editing
+     Preload form when editing / reset when adding
   -------------------------------- */
   useEffect(() => {
+    // cleanup blob preview when switching items
+    if (imagePreview?.startsWith?.("blob:")) {
+      try {
+        URL.revokeObjectURL(imagePreview);
+      } catch {}
+    }
+
     if (editingItem) {
       setForm({
         name: editingItem.name || "",
@@ -92,16 +86,19 @@ export default function AddProductModal({
         cost: editingItem.cost || "",
         price: editingItem.price || "",
         stock: editingItem.stock || "",
-        imageUrl: editingItem.imageUrl || null
+        imageUrl: editingItem.imageUrl || null,
+        imagePath: editingItem.imagePath || "",
       });
 
+      setImageFile(null);
       setImagePreview(editingItem.imageUrl || null);
 
-      const brand = brands.find(b => b.brandName === editingItem.brand);
+      const brand = brands.find((b) => b.brandName === editingItem.brand);
       if (brand?.enableSubbrands) {
         setSubbrands(brand.subbrands || []);
         setShowSubbrand(true);
       } else {
+        setSubbrands([]);
         setShowSubbrand(false);
       }
     } else {
@@ -116,25 +113,41 @@ export default function AddProductModal({
         cost: "",
         price: "",
         stock: "",
-        imageUrl: null
+        imageUrl: null,
+        imagePath: "",
       });
       setImageFile(null);
       setImagePreview(null);
+      setSubbrands([]);
       setShowSubbrand(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingItem, brands]);
+
+  /* -------------------------------
+     Cleanup blob preview on unmount
+  -------------------------------- */
+  useEffect(() => {
+    return () => {
+      if (imagePreview?.startsWith?.("blob:")) {
+        try {
+          URL.revokeObjectURL(imagePreview);
+        } catch {}
+      }
+    };
+  }, [imagePreview]);
 
   /* -------------------------------
      Handlers
   -------------------------------- */
   const handleBrandChange = (value) => {
-    setForm(prev => ({
+    setForm((prev) => ({
       ...prev,
       brand: value,
-      subBrand: ""
+      subBrand: "",
     }));
 
-    const brand = brands.find(b => b.brandName === value);
+    const brand = brands.find((b) => b.brandName === value);
 
     if (brand?.enableSubbrands) {
       setSubbrands(brand.subbrands || []);
@@ -146,14 +159,56 @@ export default function AddProductModal({
   };
 
   const handleChange = (e) => {
-    setForm(prev => ({
+    setForm((prev) => ({
       ...prev,
-      [e.target.name]: e.target.value
+      [e.target.name]: e.target.value,
     }));
   };
 
   /* -------------------------------
-     Save (with image upload)
+     Upload helper (resumable)
+     (Fixed: avoids "task before initialization")
+  -------------------------------- */
+  const uploadImageResumable = (file, path) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const imageRef = ref(storage, path);
+
+        const uploadTask = uploadBytesResumable(imageRef, file, {
+          contentType: file.type || "image/jpeg",
+          cacheControl: "public,max-age=31536000",
+        });
+
+        uploadTask.on(
+          "state_changed",
+          null,
+          (error) => {
+            console.error("UPLOAD ERROR (raw):", error);
+            console.error("UPLOAD ERROR code:", error?.code);
+            console.error("UPLOAD ERROR message:", error?.message);
+            console.error(
+              "UPLOAD ERROR serverResponse:",
+              error?.customData?.serverResponse || error?.serverResponse
+            );
+            reject(error);
+          },
+          async () => {
+            try {
+              const url = await getDownloadURL(uploadTask.snapshot.ref);
+              resolve(url);
+            } catch (e) {
+              reject(e);
+            }
+          }
+        );
+      } catch (e) {
+        reject(e);
+      }
+    });
+  };
+
+  /* -------------------------------
+     Save (with image upload + replace old file)
   -------------------------------- */
   const handleSubmit = async () => {
     if (saving) return;
@@ -161,26 +216,38 @@ export default function AddProductModal({
 
     try {
       let imageUrl = form.imageUrl || null;
+      let imagePath = form.imagePath || "";
 
+      // If user selected a new file, upload it
       if (imageFile) {
-        const storage = getStorage();
-        const imageRef = ref(
-          storage,
-          `products/${Date.now()}-${imageFile.name}`
-        );
+        const safeName = imageFile.name
+          .replace(/\s+/g, "_")
+          .replace(/[^a-zA-Z0-9._-]/g, "");
 
-        await uploadBytes(imageRef, imageFile);
-        imageUrl = await getDownloadURL(imageRef);
+        const groupKey = editingItem?.id ? editingItem.id : "new";
+        const newPath = `products/${groupKey}/${Date.now()}-${safeName}`;
+
+        imageUrl = await uploadImageResumable(imageFile, newPath);
+        imagePath = newPath;
+
+        // best-effort delete old image when editing
+        if (editingItem?.imagePath && editingItem.imagePath !== newPath) {
+          try {
+            await deleteObject(ref(storage, editingItem.imagePath));
+          } catch (e) {
+            console.warn("Old image delete failed:", e?.message || e);
+          }
+        }
       }
 
       await onSave({
         ...form,
-        imageUrl
+        imageUrl,
+        imagePath,
       });
-
     } catch (err) {
       console.error("Image save failed:", err);
-      alert("Failed to save product");
+      alert("Failed to save product (image upload).");
     } finally {
       setSaving(false);
     }
@@ -190,146 +257,161 @@ export default function AddProductModal({
 
   /* ================= UI ================= */
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-        <h2 className="modal-title">
-          {editingItem ? "Edit Product" : "Add Product"}
-        </h2>
-
-        <div className="modal-grid">
-          <input
-            name="sku"
-            placeholder="SKU"
-            value={form.sku}
-            onChange={handleChange}
-          />
-
-          <input
-            name="barcode"
-            placeholder="Barcode (scan or type)"
-            value={form.barcode}
-            onChange={handleChange}
-          />
-
-          <input
-            name="name"
-            placeholder="Product Name"
-            value={form.name}
-            onChange={handleChange}
-          />
-
-          {/* BRAND */}
-          <select
-            value={form.brand}
-            onChange={(e) => handleBrandChange(e.target.value)}
-          >
-            <option value="">Select Brand</option>
-            {brands.map(b => (
-              <option key={b.id} value={b.brandName}>
-                {b.brandName}
-              </option>
-            ))}
-          </select>
-
-          {/* SUB-BRAND */}
-          {showSubbrand && (
-            <select
-              name="subBrand"
-              value={form.subBrand}
-              onChange={handleChange}
-            >
-              <option value="">Select Sub-Brand</option>
-              {subbrands.map((sb, i) => (
-                <option key={i} value={sb}>
-                  {sb}
-                </option>
-              ))}
-            </select>
-          )}
-
-          <input
-            name="category"
-            placeholder="Category"
-            value={form.category}
-            onChange={handleChange}
-          />
-
-          {/* SPEAKER SIZE */}
-          {form.category === "Speakers" && (
-            <select
-              name="speakerSize"
-              value={form.speakerSize}
-              onChange={handleChange}
-            >
-              <option value="">Speaker Size</option>
-              {SPEAKER_SIZES.map(size => (
-                <option key={size} value={size}>
-                  {size}"
-                </option>
-              ))}
-            </select>
-          )}
-
-          <input
-            type="number"
-            name="cost"
-            placeholder="Cost"
-            value={form.cost}
-            onChange={handleChange}
-          />
-
-          <input
-            type="number"
-            name="price"
-            placeholder="Price"
-            value={form.price}
-            onChange={handleChange}
-          />
-
-          <input
-            type="number"
-            name="stock"
-            placeholder="Stock Qty"
-            value={form.stock}
-            onChange={handleChange}
-          />
-
-          {/* IMAGE UPLOAD */}
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              const file = e.target.files[0];
-              if (!file) return;
-              setImageFile(file);
-              setImagePreview(URL.createObjectURL(file));
-            }}
-          />
-
-          {imagePreview && (
-            <img
-              src={imagePreview}
-              alt="Preview"
-              className="h-24 object-contain rounded"
-            />
-          )}
+    <div className="apm-overlay" onClick={onClose}>
+      <div className="apm-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="apm-header">
+          <h2 className="apm-title">
+            {editingItem ? "Edit Product" : "Add Product"}
+          </h2>
         </div>
 
-        <div className="modal-actions">
-          <button className="cancel-btn" onClick={onClose}>
+        <div className="apm-body">
+          <div className="apm-grid">
+            <input
+              name="sku"
+              placeholder="SKU"
+              value={form.sku}
+              onChange={handleChange}
+            />
+
+            <input
+              name="barcode"
+              placeholder="Barcode (scan or type)"
+              value={form.barcode}
+              onChange={handleChange}
+            />
+
+            <input
+              name="name"
+              placeholder="Product Name"
+              value={form.name}
+              onChange={handleChange}
+            />
+
+            {/* BRAND */}
+            <select
+              value={form.brand}
+              onChange={(e) => handleBrandChange(e.target.value)}
+            >
+              <option value="">Select Brand</option>
+              {brands.map((b) => (
+                <option key={b.id} value={b.brandName}>
+                  {b.brandName}
+                </option>
+              ))}
+            </select>
+
+            {/* SUB-BRAND */}
+            {showSubbrand && (
+              <select
+                name="subBrand"
+                value={form.subBrand}
+                onChange={handleChange}
+              >
+                <option value="">Select Sub-Brand</option>
+                {subbrands.map((sb, i) => (
+                  <option key={i} value={sb}>
+                    {sb}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <input
+              name="category"
+              placeholder="Category"
+              value={form.category}
+              onChange={handleChange}
+            />
+
+            {/* SPEAKER SIZE */}
+            {form.category === "Speakers" && (
+              <select
+                name="speakerSize"
+                value={form.speakerSize}
+                onChange={handleChange}
+              >
+                <option value="">Speaker Size</option>
+                {SPEAKER_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}"
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <input
+              type="number"
+              name="cost"
+              placeholder="Cost"
+              value={form.cost}
+              onChange={handleChange}
+            />
+
+            <input
+              type="number"
+              name="price"
+              placeholder="Price"
+              value={form.price}
+              onChange={handleChange}
+            />
+
+            <input
+              type="number"
+              name="stock"
+              placeholder="Stock Qty"
+              value={form.stock}
+              onChange={handleChange}
+            />
+
+            {/* IMAGE UPLOAD */}
+            <div className="apm-imageRow">
+              <label className="apm-imageLabel">Product Image</label>
+
+              <input
+                className="apm-file"
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+
+                  // cleanup prior blob preview
+                  if (imagePreview?.startsWith?.("blob:")) {
+                    try {
+                      URL.revokeObjectURL(imagePreview);
+                    } catch {}
+                  }
+
+                  setImageFile(file);
+                  setImagePreview(URL.createObjectURL(file));
+                }}
+              />
+
+              {imagePreview && (
+                <div className="apm-previewWrap">
+                  <img
+                    src={imagePreview}
+                    alt="Preview"
+                    className="apm-preview"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="apm-footer">
+          <button className="apm-btn apm-cancel" onClick={onClose}>
             Cancel
           </button>
 
           <button
-            className="save-btn"
+            className="apm-btn apm-save"
             onClick={handleSubmit}
             disabled={saving}
           >
-            {saving
-              ? "Saving..."
-              : editingItem
-              ? "Save Changes"
-              : "Add Product"}
+            {saving ? "Saving..." : editingItem ? "Save Changes" : "Add Product"}
           </button>
         </div>
       </div>

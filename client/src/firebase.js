@@ -14,7 +14,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyBpffbHcYcc4xQlooLCjvyW5h34c-x2y4g",
   authDomain: "sounddepot-pos.firebaseapp.com",
   projectId: "sounddepot-pos",
-  storageBucket: "sounddepot-pos.appspot.com", // ✅ FIXED
+  storageBucket: "sounddepot-pos.firebasestorage.app",
   messagingSenderId: "869259922188",
   appId: "1:869259922188:web:967c7922f752f318fc9729",
   measurementId: "G-KQPBHN16HZ",

@@ -3,15 +3,18 @@ import { useNavigate } from "react-router-dom";
 import VehicleFitment from "../components/VehicleFitment";
 import CheckoutModal from "../components/CheckoutModal";
 import { db } from "../firebase";
-
+import { processOrderItem } from "../services/orderService";
 import {
   collection,
   query,
   where,
   onSnapshot,
   addDoc,
+  updateDoc,
+  doc,
   serverTimestamp,
 } from "firebase/firestore";
+
 
 export default function Sell() {
   const navigate = useNavigate();
@@ -33,6 +36,45 @@ export default function Sell() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
 
   const [heldCount, setHeldCount] = useState(0);
+const finalizeOrderWithInventory = async ({ payment, totals }) => {
+  // 1️⃣ Create the order
+  const orderRef = await addDoc(collection(db, "orders"), {
+    customerId: selectedCustomer?.id || null,
+    vehicle: selectedVehicle || null,
+    installerId: installer?.id || null,
+    installAt: installAt || null,
+    payment,
+    subtotal: totals.subtotal,
+    tax: totals.tax,
+    total: totals.total,
+    status: "OPEN",
+    createdAt: serverTimestamp(),
+  });
+
+  // 2️⃣ Process each cart item with inventory logic
+  for (const cartItem of cart) {
+    const product = products.find((p) => p.id === cartItem.productId);
+    if (!product) continue;
+
+    await processOrderItem({
+      orderId: orderRef.id,
+      product,
+      quantity: cartItem.qty,
+      orderCreatedAt: new Date(), // OK for now; Firestore ts also stored
+      promptBackorder: async (qty) =>
+        window.confirm(
+          `${product.name}: ${qty} item(s) out of stock.\nAdd to backorder?`
+        ),
+    });
+  }
+
+  // 3️⃣ Update order status if needed (PARTIAL vs FULFILLED)
+  await updateDoc(doc(db, "orders", orderRef.id), {
+    status: "FULFILLED", // receiving logic will downgrade if needed
+  });
+
+  return orderRef.id;
+};
 
   /* ================= LOAD DATA ================= */
   useEffect(() => {
@@ -374,23 +416,27 @@ export default function Sell() {
         onClose={() => setCheckoutOpen(false)}
         subtotal={subtotal}
         taxRate={taxRate}
-        onCompletePayment={({ payment, totals }) => {
-          const receipt = {
-            cartItems: cart,
-            customer: selectedCustomer ?? null,
-            vehicle: selectedVehicle ?? null,
-            installer: installer ?? null,
-            installAt: installAt ?? null,
-            payment,
-            subtotal: totals.subtotal,
-            tax: totals.tax,
-            total: totals.total,
-          };
+        onCompletePayment={async ({ payment, totals }) => {
+  const orderId = await finalizeOrderWithInventory({ payment, totals });
 
-          localStorage.setItem("currentReceipt", JSON.stringify(receipt));
-          setCheckoutOpen(false);
-          window.location.href = "/print-receipt";
-        }}
+  const receipt = {
+    orderId,
+    cartItems: cart,
+    customer: selectedCustomer ?? null,
+    vehicle: selectedVehicle ?? null,
+    installer: installer ?? null,
+    installAt: installAt ?? null,
+    payment,
+    subtotal: totals.subtotal,
+    tax: totals.tax,
+    total: totals.total,
+  };
+
+  localStorage.setItem("currentReceipt", JSON.stringify(receipt));
+  setCheckoutOpen(false);
+  window.location.href = "/print-receipt";
+}}
+
       />
     </div>
   );

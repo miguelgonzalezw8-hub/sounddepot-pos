@@ -1,93 +1,135 @@
-.modal-overlay {
+/* src/components/AddProductModal.css */
+
+.apm-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
-  justify-content: center;
   align-items: center;
-  z-index: 99999;
+  justify-content: center;
+  padding: 16px;
+  z-index: 9999;
 }
 
-.modal-box {
-  background: white;
-  padding: 24px;
-  width: 420px;
+.apm-modal {
+  width: min(760px, 96vw);
+  max-height: min(86vh, 820px);
+  background: #fff;
   border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.25);
-  animation: fadeIn 0.2s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-.modal-title {
-  font-size: 20px;
-  font-weight: 700;
-  margin-bottom: 16px;
-  color: #1e293b;
-}
-
-.modal-grid {
-  display: grid;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.modal-grid input,
-.modal-grid select {
-  padding: 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 14px;
-  width: 100%;
-}
-
-.modal-actions {
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.apm-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.apm-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.apm-body {
+  padding: 14px 16px;
+  overflow: auto;
+  flex: 1;
+}
+
+.apm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-.cancel-btn {
-  background: #e2e8f0;
-  padding: 10px 16px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+@media (max-width: 680px) {
+  .apm-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-.save-btn {
-  background: #2563eb;
-  color: white;
-  padding: 10px 18px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 600;
-}
-.edit-btn {
-  background: #2563eb;
-  color: white;
-  padding: 6px 10px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
+.apm-grid input,
+.apm-grid select {
+  width: 100%;
+  padding: 10px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
 }
 
-.delete-btn {
-  background: #dc2626;
-  color: white;
-  padding: 6px 10px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
+.apm-grid input:focus,
+.apm-grid select:focus {
+  border-color: rgba(0, 0, 0, 0.35);
 }
 
-.actions-col {
+.apm-imageRow {
+  grid-column: 1 / -1;
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.apm-imageLabel {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.apm-file {
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.apm-previewWrap {
+  width: 100%;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.apm-preview {
+  width: 180px;
+  height: 140px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fafafa;
+  padding: 6px;
+}
+
+.apm-footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: #fff;
+}
+
+.apm-btn {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.apm-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.apm-cancel {
+  background: #fff;
+}
+
+.apm-save {
+  background: #111;
+  color: #fff;
+  border-color: #111;
 }
