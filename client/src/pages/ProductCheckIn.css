@@ -139,3 +139,39 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+/* Cost input with inside Prev button */
+.cost-wrap {
+  position: relative;
+  width: 180px; /* adjust if your layout needs */
+  flex: 0 0 auto;
+}
+
+.cost-wrap input {
+  width: 100%;
+  padding-right: 56px; /* room for the button */
+}
+
+.prev-cost-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: #fff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.prev-cost-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.prev-cost-line {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.75;
+}

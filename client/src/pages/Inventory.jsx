@@ -9,6 +9,7 @@ import AddBrandModal from "../components/AddBrandModal";
 import {
   collection,
   addDoc,
+  setDoc,
   serverTimestamp,
   onSnapshot,
   query,
@@ -16,9 +17,40 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  runTransaction,
 } from "firebase/firestore";
 
 import { db } from "../firebase";
+
+/* ===============================
+   NEAT PRODUCT ID HELPERS
+   Format: <BRANDCODE><####>
+   BRANDCODE = first + last char of brand (A-Z0-9), uppercase
+   Example: "JL Audio" -> "JO0001"
+   =============================== */
+function makeBrandCode(brand) {
+  const cleaned = String(brand || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  if (cleaned.length >= 2) return cleaned[0] + cleaned[cleaned.length - 1];
+  if (cleaned.length === 1) return cleaned[0] + cleaned[0];
+  return "XX";
+}
+
+async function getNextProductIdForBrand(dbRef, brand) {
+  const brandCode = makeBrandCode(brand);
+  const counterRef = doc(dbRef, "counters", `products_${brandCode}`);
+
+  const nextNum = await runTransaction(dbRef, async (tx) => {
+    const snap = await tx.get(counterRef);
+    const current = snap.exists() ? Number(snap.data()?.next || 1) : 1;
+    tx.set(counterRef, { next: current + 1 }, { merge: true });
+    return current;
+  });
+
+  const padded = String(nextNum).padStart(4, "0");
+  return `${brandCode}${padded}`;
+}
 
 export default function Inventory() {
   const navigate = useNavigate();
@@ -49,12 +81,16 @@ export default function Inventory() {
         alert("Product updated");
         setEditingItem(null);
       } else {
-        await addDoc(collection(db, "products"), {
+        // ✅ NEW: professional, readable product ID instead of Firestore auto-id
+        const neatId = await getNextProductIdForBrand(db, payload.brand);
+
+        await setDoc(doc(db, "products", neatId), {
           ...payload,
           createdAt: serverTimestamp(),
           active: true,
         });
-        alert("Product added");
+
+        alert(`Product added (${neatId})`);
       }
 
       setModalOpen(false);
@@ -101,9 +137,9 @@ export default function Inventory() {
     const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setItems(
-        snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
+        snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
         }))
       );
     });
@@ -118,7 +154,7 @@ export default function Inventory() {
     search.trim().length === 0
       ? []
       : items.filter((i) =>
-          `${i.name} ${i.brand} ${i.sku} ${i.barcode || ""}`
+          `${i.name} ${i.brand} ${i.sku} ${i.barcode || ""} ${i.id || ""}`
             .toLowerCase()
             .includes(search.toLowerCase())
         );
@@ -132,7 +168,7 @@ export default function Inventory() {
       <div className="search-row">
         <input
           className="search-box search-box-wide"
-          placeholder="Search products by name, brand, SKU, or barcode..."
+          placeholder="Search products by name, brand, SKU, barcode, or ID..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           autoFocus
@@ -152,10 +188,7 @@ export default function Inventory() {
         </div>
 
         {/* ✅ FIXED: REAL NAVIGATION */}
-        <div
-          className="tile"
-          onClick={() => navigate("/inventory/check-in")}
-        >
+        <div className="tile" onClick={() => navigate("/inventory/check-in")}>
           <span className="tile-title">📥 Product Check-In</span>
           <span className="tile-sub">Receive inventory</span>
         </div>
@@ -192,7 +225,13 @@ export default function Inventory() {
               </tr>
             ) : (
               filteredItems.map((item) => (
-                <tr key={item.id}>
+                <tr
+                  key={item.id}
+                  // ✅ Click row to inspect checked-in units for this master product
+                  onClick={() => navigate(`/inventory/product/${item.id}`)}
+                  style={{ cursor: "pointer" }}
+                  title="Click to view checked-in units"
+                >
                   <td>{item.sku || "—"}</td>
                   <td>{item.barcode || "—"}</td>
                   <td>{item.name}</td>
@@ -206,7 +245,9 @@ export default function Inventory() {
                       <span className="status active">Active</span>
                     )}
                   </td>
-                  <td className="actions-col">
+
+                  {/* Actions still work — stop row click from firing */}
+                  <td className="actions-col" onClick={(e) => e.stopPropagation()}>
                     <button
                       className="edit-btn"
                       onClick={() => {

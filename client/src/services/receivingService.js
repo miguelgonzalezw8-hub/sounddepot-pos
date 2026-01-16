@@ -13,6 +13,7 @@ import {
   serverTimestamp
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { updateOrderStatus } from "./orderService";
 
 const unitsRef = collection(db, "productUnits");
 const orderItemsRef = collection(db, "orderItems");
