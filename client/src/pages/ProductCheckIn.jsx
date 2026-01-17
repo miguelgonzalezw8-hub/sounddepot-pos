@@ -1,474 +1,441 @@
-import { useState, useEffect } from "react";
+// client/src/pages/ProductCheckIn.jsx
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import "./ProductCheckIn.css";
-
+import { db } from "../firebase";
 import {
   collection,
   query,
   where,
-  getDocs,
-  updateDoc,
-  doc,
-  orderBy,
-  limit,
+  onSnapshot,
   serverTimestamp,
-  runTransaction,
-  setDoc,
+  writeBatch,
+  doc,
+  updateDoc,
 } from "firebase/firestore";
-
-import { db } from "../firebase";
-
-/* ===============================
-   UNIT ITEM ID HELPERS
-   Format: 2-letter brand code + number
-   Examples:
-   - "JL Audio" -> JL0001
-   - "Rockford Fosgate" -> RF0001
-   - "Hertz" -> HZ0001  (single word => first + last)
-   =============================== */
-
-function makeBrandCode(brand) {
-  const raw = String(brand || "").trim();
-  if (!raw) return "XX";
-
-  // keep only letters/numbers/spaces for splitting, but also keep original for single-word fallback
-  const words = raw
-    .toUpperCase()
-    .replace(/[^A-Z0-9 ]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-
-  // Multi-word brand: first letters of first 2 words => RF, JL, etc.
-  if (words.length >= 2) {
-    const a = words[0][0] || "X";
-    const b = words[1][0] || "X";
-    return `${a}${b}`;
-  }
-
-  // Single-word brand: first + last letter => HZ for Hertz
-  const cleaned = words[0] || raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  if (!cleaned) return "XX";
-  const first = cleaned[0] || "X";
-  const last = cleaned[cleaned.length - 1] || first;
-  return `${first}${last}`;
-}
-
-async function getNextUnitItemId(dbRef, brand) {
-  const code = makeBrandCode(brand);
-  const counterRef = doc(dbRef, "counters", `unit_${code}`);
-
-  const nextNum = await runTransaction(dbRef, async (tx) => {
-    const snap = await tx.get(counterRef);
-    const current = snap.exists() ? Number(snap.data()?.next || 1) : 1;
-    tx.set(counterRef, { next: current + 1 }, { merge: true });
-    return current;
-  });
-
-  // adaptive padding: minimum 4 digits, grows if needed
-  const nStr = String(nextNum);
-  const padLen = Math.max(4, nStr.length);
-  return `${code}${nStr.padStart(padLen, "0")}`;
-}
 
 export default function ProductCheckIn() {
   const navigate = useNavigate();
 
-  /* ===============================
-     MASTER PRODUCT SELECTION
-     =============================== */
-  const [barcode, setBarcode] = useState("");
+  const [products, setProducts] = useState([]);
   const [search, setSearch] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
-  const [product, setProduct] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
 
-  /* ===============================
-     UNIT ENTRY
-     =============================== */
-  const [units, setUnits] = useState([{ cost: "", serial: "" }]);
-  const [loading, setLoading] = useState(false);
+  // ✅ tracking mode: "serialized" | "non"
+  const [trackMode, setTrackMode] = useState("non");
 
-  // last typed cost during THIS check-in session
-  const [lastEnteredCost, setLastEnteredCost] = useState("");
+  // Serialized flow
+  const [serialInput, setSerialInput] = useState("");
+  const [serials, setSerials] = useState([]);
 
-  // spot/bin location for this check-in batch
-  const [spot, setSpot] = useState("");
+  // Non-serialized flow
+  const [qty, setQty] = useState(1);
 
-  // placeholder employee fields until Auth per employee is wired
-  const [receivedByName] = useState("Front Counter");
-  const [receivedById] = useState(null);
+  // ✅ bring back cost
+  const [unitCost, setUnitCost] = useState("");
 
-  /* ===============================
-     BARCODE LOOKUP
-     =============================== */
-  const handleBarcodeScan = async (e) => {
-    if (e.key !== "Enter") return;
+  // Notes
+  const [note, setNote] = useState("");
 
-    setLoading(true);
-    setProduct(null);
+  const [saving, setSaving] = useState(false);
 
-    const q = query(
-      collection(db, "products"),
-      where("barcode", "==", barcode),
-      limit(1)
-    );
-
-    const snap = await getDocs(q);
-
-    if (snap.empty) {
-      alert("No product found for this barcode.");
-      setLoading(false);
-      return;
-    }
-
-    const docSnap = snap.docs[0];
-    setProduct({ id: docSnap.id, ...docSnap.data() });
-    setSearchResults([]);
-    setLoading(false);
-  };
-
-  /* ===============================
-     SEARCH MASTER PRODUCTS
-     =============================== */
+  /* ================= LOAD PRODUCTS ================= */
   useEffect(() => {
-    if (!search || search.trim().length < 2 || product) {
-      setSearchResults([]);
+    const qy = query(collection(db, "products"), where("active", "==", true));
+    return onSnapshot(qy, (snap) =>
+      setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
+  }, []);
+
+  const filtered = useMemo(() => {
+    const s = (search || "").trim().toLowerCase();
+    if (!s) return [];
+    return products
+      .filter((p) => `${p.name || ""} ${p.sku || ""}`.toLowerCase().includes(s))
+      .slice(0, 30);
+  }, [products, search]);
+
+  const productSuggestsSerialized = useMemo(() => {
+    const p = selectedProduct;
+    if (!p) return false;
+    return (
+      !!p.trackSerials ||
+      !!p.requiresSerial ||
+      !!p.serialized ||
+      !!p.trackSerial ||
+      !!p.trackSerialNumber
+    );
+  }, [selectedProduct]);
+
+  // ✅ default mode to product flags, but still user-selectable
+  useEffect(() => {
+    if (!selectedProduct) return;
+
+    setTrackMode(productSuggestsSerialized ? "serialized" : "non");
+    setSerialInput("");
+    setSerials([]);
+    setQty(1);
+
+    // leave cost + note intact if you want; I reset them for cleanliness
+    setUnitCost("");
+    setNote("");
+  }, [selectedProduct, productSuggestsSerialized]);
+
+  const resetForm = () => {
+    setSelectedProduct(null);
+    setSearch("");
+    setTrackMode("non");
+    setSerialInput("");
+    setSerials([]);
+    setQty(1);
+    setUnitCost("");
+    setNote("");
+  };
+
+  const addSerial = () => {
+    const s = String(serialInput || "").trim();
+    if (!s) return;
+    if (serials.includes(s)) {
+      setSerialInput("");
+      return;
+    }
+    setSerials((prev) => [...prev, s]);
+    setSerialInput("");
+  };
+
+  const removeSerial = (s) => setSerials((prev) => prev.filter((x) => x !== s));
+
+  const parsedCost = () => {
+    if (unitCost === "" || unitCost === null || unitCost === undefined) return null;
+    const n = Number(unitCost);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const submitCheckIn = async () => {
+    if (!selectedProduct?.id) return;
+
+    const isSerialized = trackMode === "serialized";
+
+    if (isSerialized && serials.length === 0) {
+      alert("Scan/add at least 1 serial number.");
       return;
     }
 
-    const fetchProducts = async () => {
-      const q = query(collection(db, "products"));
-      const snap = await getDocs(q);
-
-      const results = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((p) =>
-          `${p.name || ""} ${p.brand || ""} ${p.sku || ""} ${p.barcode || ""} ${p.id || ""}`
-            .toLowerCase()
-            .includes(search.toLowerCase())
-        );
-
-      setSearchResults(results.slice(0, 15));
-    };
-
-    fetchProducts();
-  }, [search, product]);
-
-  /* ===============================
-     UNIT INPUT HANDLING
-     =============================== */
-  const updateUnit = (index, key, value) => {
-    setUnits((prev) =>
-      prev.map((u, i) => (i === index ? { ...u, [key]: value } : u))
-    );
-
-    if (key === "cost") {
-      const cleaned = String(value ?? "").trim();
-      if (cleaned !== "") setLastEnteredCost(cleaned);
-    }
-  };
-
-  const addUnitRow = () => setUnits((prev) => [...prev, { cost: "", serial: "" }]);
-  const removeUnitRow = (index) => setUnits((prev) => prev.filter((_, i) => i !== index));
-
-  /* ===============================
-     PREV COST BUTTON
-     =============================== */
-  const applyPrevCost = (index) => {
-    if (lastEnteredCost !== "") {
-      updateUnit(index, "cost", lastEnteredCost);
+    const qNum = Number(qty);
+    if (!isSerialized && (!Number.isFinite(qNum) || qNum <= 0)) {
+      alert("Enter a valid quantity.");
       return;
     }
 
-    const fallback = product?.avgCost ?? product?.cost;
-    if (fallback === undefined || fallback === null || fallback === "") return;
-
-    updateUnit(index, "cost", String(fallback));
-  };
-
-  const prevCostDisabled =
-    !lastEnteredCost &&
-    (product?.avgCost === undefined ||
-      product?.avgCost === null ||
-      product?.avgCost === "") &&
-    (product?.cost === undefined || product?.cost === null || product?.cost === "");
-
-  /* ===============================
-     UPDATE PRODUCT MASTER AVG COST
-     =============================== */
-  const updateProductAverageCost = async (productId, newCosts) => {
-    const sumNew = newCosts.reduce((a, b) => a + b, 0);
-    const qtyNew = newCosts.length;
-
-    const prevAvg = Number(product?.avgCost ?? product?.cost ?? 0);
-    const prevQty = Number(product?.avgCostQty ?? 0);
-
-    const nextQty = prevQty + qtyNew;
-    const nextAvg = nextQty > 0 ? (prevAvg * prevQty + sumNew) / nextQty : prevAvg;
-
-    const nextAvgFixed = Number(nextAvg.toFixed(4));
-
-    await updateDoc(doc(db, "products", productId), {
-      avgCost: nextAvgFixed,
-      avgCostQty: nextQty,
-      cost: nextAvgFixed,
-      updatedAt: serverTimestamp(),
-    });
-
-    setProduct((p) =>
-      p
-        ? {
-            ...p,
-            avgCost: nextAvgFixed,
-            avgCostQty: nextQty,
-            cost: nextAvgFixed,
-          }
-        : p
-    );
-  };
-
-  /* ===============================
-     FIFO BACKORDER ASSIGN
-     =============================== */
-  const assignBackordersFIFO = async (productId, unitDocId) => {
-    const q = query(
-      collection(db, "backorders"),
-      where("productId", "==", productId),
-      where("status", "==", "open"),
-      orderBy("createdAt", "asc"),
-      limit(1)
-    );
-
-    const snap = await getDocs(q);
-    if (snap.empty) return;
-
-    await updateDoc(snap.docs[0].ref, {
-      status: "fulfilled",
-      fulfilledAt: serverTimestamp(),
-    });
-
-    await updateDoc(doc(db, "productUnits", unitDocId), {
-      status: "reserved",
-      backorderId: snap.docs[0].id,
-      reservedAt: serverTimestamp(),
-    });
-  };
-
-  /* ===============================
-     SAVE CHECK-IN
-     =============================== */
-  const handleSave = async () => {
-    if (!product) return;
-
-    if (units.some((u) => !u.cost)) {
-      alert("Each unit must have a cost.");
+    const cost = parsedCost();
+    if (unitCost !== "" && cost === null) {
+      alert("Cost must be a number (example: 59.99).");
       return;
     }
 
-    setLoading(true);
-
+    setSaving(true);
     try {
-      const costNumbers = units.map((u) => Number(u.cost));
+      const batch = writeBatch(db);
 
-      for (const u of units) {
-        // ✅ NEW: generate unit-level Item ID (doc id)
-        const unitId = await getNextUnitItemId(db, product.brand);
+      const baseUnit = {
+        productId: selectedProduct.id,
+        productName: selectedProduct.name || "",
+        sku: selectedProduct.sku || "",
 
-        await setDoc(doc(db, "productUnits", unitId), {
-          unitId, // keep field for convenience
-          productId: product.id,
-          barcode: product.barcode || null,
-          cost: Number(u.cost),
-          serial: u.serial || null,
-          status: "in_stock",
-          spot: spot || null,
-          receivedById: receivedById,
-          receivedByName: receivedByName,
-          receivedAt: serverTimestamp(),
-        });
+        status: "IN_STOCK",
+        receivedAt: serverTimestamp(),
+        notes: note || "",
 
-        await assignBackordersFIFO(product.id, unitId);
+        // ✅ cost stored per unit
+        cost: cost, // null allowed
+
+        createdAt: serverTimestamp(),
+      };
+
+      if (isSerialized) {
+        for (const s of serials) {
+          const ref = doc(collection(db, "productUnits"));
+          batch.set(ref, {
+            ...baseUnit,
+            serial: s,
+            hasSerial: true,
+          });
+        }
+      } else {
+        const count = Math.floor(qNum);
+        for (let i = 0; i < count; i++) {
+          const ref = doc(collection(db, "productUnits"));
+          batch.set(ref, {
+            ...baseUnit,
+            serial: "",
+            hasSerial: false,
+          });
+        }
       }
 
-      await updateProductAverageCost(product.id, costNumbers);
+      await batch.commit();
 
-      alert("Product check-in complete ✅");
-      setBarcode("");
-      setSearch("");
-      setProduct(null);
-      setUnits([{ cost: "", serial: "" }]);
-      setLastEnteredCost("");
-      setSpot("");
-    } catch (err) {
-      console.error(err);
-      alert("Check-in failed");
+      // OPTIONAL: store lastCost on product for convenience (does NOT drive qty)
+      // If you don't want this, delete this block.
+      if (cost !== null) {
+        try {
+          await updateDoc(doc(db, "products", selectedProduct.id), {
+            lastCost: cost,
+            lastReceivedAt: serverTimestamp(),
+          });
+        } catch (e) {
+          // not fatal
+          console.warn("could not update product lastCost:", e);
+        }
+      }
+
+      alert("Checked in successfully.");
+      resetForm();
+    } catch (e) {
+      console.error("check-in failed:", e);
+      alert("Check-in failed. See console for details.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
-  /* ===============================
-     RESET PRODUCT
-     =============================== */
-  const resetProduct = () => {
-    setProduct(null);
-    setBarcode("");
-    setSearch("");
-    setSearchResults([]);
-    setUnits([{ cost: "", serial: "" }]);
-    setLastEnteredCost("");
-    setSpot("");
-  };
-
-  /* ===============================
-     UI
-     =============================== */
   return (
-    <div className="checkin-container">
-      {/* Back button + title */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+    <div className="inventory-container">
+      {/* ✅ Back button restored */}
+      <div className="flex items-center justify-between mb-3">
         <button
-          type="button"
-          className="link-btn"
           onClick={() => navigate(-1)}
-          disabled={loading}
-          style={{ padding: "8px 12px" }}
+          className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-sm font-semibold"
         >
           ← Back
         </button>
-        <h1 style={{ margin: 0 }}>📥 Product Check-In</h1>
+
+        <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">
+          Product Check-In
+        </div>
+
+        <div style={{ width: 88 }} />
       </div>
 
-      {/* MASTER PRODUCT SEARCH */}
-      {!product && (
-        <input
-          className="master-search"
-          placeholder="Scan barcode or search by name / SKU / brand"
-          value={search || barcode}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setBarcode(e.target.value);
-          }}
-          onKeyDown={handleBarcodeScan}
-          disabled={loading}
-          autoFocus
-        />
-      )}
-
-      {/* SEARCH RESULTS */}
-      {!product && searchResults.length > 0 && (
-        <div className="search-results">
-          {searchResults.map((p) => (
-            <div
-              key={p.id}
-              className="search-result"
-              onClick={() => {
-                setProduct(p);
-                setSearchResults([]);
-              }}
-            >
-              <strong>{p.name}</strong>
-              <div className="meta">
-                {p.brand} · {p.sku}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* PRODUCT SUMMARY */}
-      {product && (
-        <div className="product-summary">
-          <strong>{product.name}</strong>
-          <div>Brand: {product.brand}</div>
-          <div>SKU: {product.sku || "—"}</div>
-          <div>Sell Price: ${Number(product.price || 0).toFixed(2)}</div>
-
-          <div className="prev-cost-line">
-            Avg Cost:{" "}
-            {product.avgCost !== undefined && product.avgCost !== null && product.avgCost !== "" ? (
-              `$${Number(product.avgCost).toFixed(2)}`
-            ) : product.cost !== undefined && product.cost !== null && product.cost !== "" ? (
-              `$${Number(product.cost).toFixed(2)}`
-            ) : (
-              "—"
-            )}
+      {!selectedProduct ? (
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border shadow-sm">
+          <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">
+            Select a product
           </div>
 
-          <button className="link-btn" onClick={resetProduct}>
-            Change product
-          </button>
-        </div>
-      )}
-
-      {/* Spot/Bin */}
-      {product && (
-        <div style={{ marginTop: 10 }}>
           <input
-            className="master-search"
-            placeholder="Spot / Bin (optional) — applies to all units"
-            value={spot}
-            onChange={(e) => setSpot(e.target.value)}
-            disabled={loading}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search product name or SKU…"
+            className="w-full h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
           />
-        </div>
-      )}
 
-      {/* UNIT ENTRY */}
-      {product && (
-        <div className="unit-list">
-          <h3>Units Received</h3>
-
-          {units.map((u, i) => (
-            <div className="unit-row" key={i}>
-              <div className="cost-wrap">
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="Cost"
-                  value={u.cost}
-                  onChange={(e) => updateUnit(i, "cost", e.target.value)}
-                />
-
-                <button
-                  type="button"
-                  className="prev-cost-btn"
-                  onClick={() => applyPrevCost(i)}
-                  disabled={prevCostDisabled}
-                  title={
-                    lastEnteredCost
-                      ? `Use last entered cost ($${Number(lastEnteredCost).toFixed(2)})`
-                      : `Use average cost (${product?.avgCost ?? product?.cost ?? "—"})`
-                  }
+          {search && (
+            <div className="mt-2 border rounded-lg max-h-72 overflow-y-auto bg-white dark:bg-slate-950">
+              {filtered.map((p) => (
+                <div
+                  key={p.id}
+                  onMouseDown={() => {
+                    setSelectedProduct(p);
+                    setSearch("");
+                  }}
+                  className="px-3 py-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-900"
                 >
-                  ↺
+                  <div className="font-semibold">{p.name}</div>
+                  <div className="text-xs text-slate-500">{p.sku || ""}</div>
+                </div>
+              ))}
+              {filtered.length === 0 && (
+                <div className="px-3 py-3 text-sm text-slate-500">No matches.</div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-lg font-bold text-slate-800 dark:text-slate-100">
+                {selectedProduct.name}
+              </div>
+              <div className="text-xs text-slate-500">{selectedProduct.sku || ""}</div>
+              <div className="mt-2 text-xs text-slate-500">
+                Default: {productSuggestsSerialized ? "Serialized" : "Non-Serialized"}
+              </div>
+            </div>
+
+            <button
+              className="px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-slate-800 text-sm"
+              onClick={resetForm}
+              disabled={saving}
+            >
+              Change Product
+            </button>
+          </div>
+
+          {/* ✅ Mode selector */}
+          <div className="mt-4">
+            <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">
+              Tracking Mode
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={() => setTrackMode("non")}
+                disabled={saving}
+                className={[
+                  "px-3 py-2 rounded-lg border text-sm font-semibold",
+                  trackMode === "non"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800",
+                ].join(" ")}
+              >
+                Non-Serialized (Qty)
+              </button>
+              <button
+                onClick={() => setTrackMode("serialized")}
+                disabled={saving}
+                className={[
+                  "px-3 py-2 rounded-lg border text-sm font-semibold",
+                  trackMode === "serialized"
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800",
+                ].join(" ")}
+              >
+                Serialized (Serials)
+              </button>
+            </div>
+          </div>
+
+          {/* ✅ Cost restored */}
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-slate-200">
+                Unit Cost (optional)
+              </div>
+              <input
+                value={unitCost}
+                onChange={(e) => setUnitCost(e.target.value)}
+                placeholder="Example: 59.99"
+                className="w-full h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+                disabled={saving}
+              />
+              <div className="text-xs text-slate-500 mt-1">
+                Applied to every unit created in this check-in.
+              </div>
+            </div>
+
+            <div>
+              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-slate-200">
+                Notes (optional)
+              </div>
+              <input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Vendor, PO #, etc…"
+                className="w-full h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+                disabled={saving}
+              />
+            </div>
+          </div>
+
+          {/* SERIALIZED */}
+          {trackMode === "serialized" ? (
+            <div className="mt-4">
+              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-slate-200">
+                Scan / Enter Serial Numbers
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  value={serialInput}
+                  onChange={(e) => setSerialInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addSerial();
+                    }
+                  }}
+                  placeholder="Scan serial and press Enter…"
+                  className="flex-1 h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+                  disabled={saving}
+                />
+                <button
+                  onClick={addSerial}
+                  disabled={saving}
+                  className="px-4 h-11 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold disabled:opacity-60"
+                >
+                  Add
                 </button>
               </div>
 
-              <input
-                placeholder="Serial (optional)"
-                value={u.serial}
-                onChange={(e) => updateUnit(i, "serial", e.target.value)}
-              />
-
-              {units.length > 1 && (
-                <button className="remove-btn" onClick={() => removeUnitRow(i)}>
-                  ✕
-                </button>
-              )}
+              <div className="mt-3 border rounded-lg overflow-hidden">
+                <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 text-xs font-bold">
+                  Serial List ({serials.length})
+                </div>
+                {serials.length === 0 ? (
+                  <div className="px-3 py-3 text-sm text-slate-500">
+                    No serials added yet.
+                  </div>
+                ) : (
+                  <div className="max-h-52 overflow-y-auto">
+                    {serials.map((s) => (
+                      <div
+                        key={s}
+                        className="px-3 py-2 border-t flex items-center justify-between"
+                      >
+                        <div className="text-sm">{s}</div>
+                        <button
+                          className="text-sm text-red-600 hover:underline"
+                          onClick={() => removeSerial(s)}
+                          disabled={saving}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          ))}
+          ) : (
+            /* NON-SERIALIZED */
+            <div className="mt-4">
+              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-slate-200">
+                Quantity Received
+              </div>
+              <input
+                type="number"
+                min="1"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                className="w-44 h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+                disabled={saving}
+              />
+              <div className="text-xs text-slate-500 mt-2">
+                This will create <b>{Math.floor(Number(qty) || 0)}</b> unit record(s)
+                in <code>productUnits</code>.
+              </div>
+            </div>
+          )}
 
-          <button className="add-row-btn" onClick={addUnitRow}>
-            + Add another unit
-          </button>
+          {/* SUBMIT */}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              className="px-4 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-slate-800"
+              onClick={resetForm}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+
+            <button
+              onClick={submitCheckIn}
+              disabled={saving}
+              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-60"
+            >
+              {saving ? "Saving..." : "Check In"}
+            </button>
+          </div>
         </div>
-      )}
-
-      {/* ACTION */}
-      {product && (
-        <button className="save-btn" onClick={handleSave} disabled={loading}>
-          ✅ Complete Check-In
-        </button>
       )}
     </div>
   );

@@ -4,8 +4,6 @@ import {
   addDoc,
   query,
   where,
-  orderBy,
-  limit,
   getDocs,
   getDoc,
   updateDoc,
@@ -13,6 +11,7 @@ import {
   serverTimestamp,
   increment,
   arrayUnion,
+  limit,
 } from "firebase/firestore";
 
 import { db } from "../firebase";
@@ -24,6 +23,7 @@ import { getAvailableUnitsFIFO, reserveProductUnit } from "./inventoryService";
 const ordersRef = collection(db, "orders");
 const orderItemsRef = collection(db, "orderItems");
 const tasksRef = collection(db, "tasks");
+const backordersRef = collection(db, "backorders");
 
 /**
  * Dashboard tasks/reminders live in tasks/.
@@ -49,6 +49,61 @@ async function createTask({
     productId,
     customerId,
     customerName,
+    createdAt: serverTimestamp(),
+    createdBy,
+  });
+}
+
+/**
+ * Upsert ONE backorder doc per orderItem (prevents duplicates)
+ */
+async function upsertBackorderDoc({
+  orderId,
+  orderItemId,
+  productId,
+  productName,
+  requestedQty,
+  customerId = "",
+  customerName = "",
+  customerPhone = "",
+  createdBy = "",
+}) {
+  const qNum = Number(requestedQty || 0);
+  if (!Number.isFinite(qNum) || qNum <= 0) return;
+
+  // find existing open backorder for this orderItem
+  const q = query(
+    backordersRef,
+    where("orderItemId", "==", orderItemId),
+    where("status", "in", ["open", "ordered", "received", "notified"]),
+    limit(1)
+  );
+
+  const snap = await getDocs(q);
+
+  if (!snap.empty) {
+    const existing = snap.docs[0];
+    await updateDoc(doc(db, "backorders", existing.id), {
+      requestedQty: qNum,
+      customerId,
+      customerName,
+      customerPhone,
+      updatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  await addDoc(backordersRef, {
+    status: "open",
+    orderId,
+    orderItemId,
+    productId,
+    productName: productName || "",
+    requestedQty: qNum,
+    customerId,
+    customerName,
+    customerPhone,
+    notes: "",
     createdAt: serverTimestamp(),
     createdBy,
   });
@@ -99,17 +154,6 @@ export async function createOrder({
 
 /**
  * Create an order item row.
- * REQUIRED for receivingService logic:
- * - productId
- * - backorderedQty (>0 means backorder exists)
- * - orderCreatedAt (so oldest is picked first)
- * - orderId
- *
- * ✅ NEW (accurate reporting):
- * - unitPrice (sell price used at time of sale)
- * - discountTotal (line discount total)
- * - lineSubtotal / lineTotal (net)
- * - taxable (bool)
  */
 export async function createOrderItem({
   orderId,
@@ -117,9 +161,8 @@ export async function createOrderItem({
   qty,
   createdBy = "",
 
-  // ✅ pricing snapshot fields
-  unitPrice = null,       // per unit
-  discountTotal = 0,      // total discount for this line
+  unitPrice = null,
+  discountTotal = 0,
   taxable = true,
 }) {
   if (!orderId) throw new Error("createOrderItem: missing orderId");
@@ -145,19 +188,22 @@ export async function createOrderItem({
     productName: product.name || "",
     trackSerials: !!product.trackSerials,
 
-    // ✅ pricing snapshot
+    // customer info copied from order header
+    customerId: orderData.customerId || "",
+    customerName: orderData.customerName || "",
+    customerPhone: orderData.customerPhone || "",
+
+    // pricing snapshot
     unitPrice: Number.isFinite(p) ? p : 0,
     discountTotal: Number.isFinite(d) ? d : 0,
     lineSubtotal: Number.isFinite(lineSubtotal) ? lineSubtotal : 0,
     lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
     taxable: !!taxable,
 
-    // quantities
     qtyOrdered: qNum,
     fulfilledQty: 0,
     backorderedQty: qNum,
 
-    // used for FIFO backorder assignment in receivingService
     orderCreatedAt: orderData.createdAt || serverTimestamp(),
 
     assignedUnitIds: [],
@@ -173,7 +219,7 @@ export async function createOrderItem({
  * Allocate IN_STOCK units FIFO for ONE order item.
  * - Reserves existing inventory units (oldest receivedAt first)
  * - Updates fulfilledQty/backorderedQty/assignedUnitIds
- * - Creates a Dashboard reminder if anything is backordered
+ * - Creates/updates ONE backorder doc if short (correct missing qty only)
  */
 export async function allocateOrderItemFIFO({
   orderItemId,
@@ -223,17 +269,33 @@ export async function allocateOrderItemFIFO({
 
   await updateDoc(itemRef, patch);
 
-  if (createBackorderReminder && newBackordered > 0) {
-    await createTask({
-      type: "BACKORDER_CREATED",
-      message: `${item.productName || "Item"} is backordered (${newBackordered}). Contact customer and track incoming inventory.`,
+  // ✅ Correct behavior: only missing qty becomes backorder
+  if (newBackordered > 0) {
+    await upsertBackorderDoc({
       orderId,
       orderItemId,
       productId,
+      productName: item.productName || "",
+      requestedQty: newBackordered,
       customerId: item.customerId || "",
       customerName: item.customerName || "",
+      customerPhone: item.customerPhone || "",
       createdBy,
     });
+
+    // Optional: create one task per item (you can remove later if you want)
+    if (createBackorderReminder) {
+      await createTask({
+        type: "BACKORDER_CREATED",
+        message: `${item.productName || "Item"} is backordered (${newBackordered}).`,
+        orderId,
+        orderItemId,
+        productId,
+        customerId: item.customerId || "",
+        customerName: item.customerName || "",
+        createdBy,
+      });
+    }
   }
 
   await updateOrderStatus(orderId);
@@ -278,9 +340,7 @@ export async function createBackorderArrivedTask({
 }) {
   await createTask({
     type: "CONTACT_CUSTOMER_BACKORDER_ARRIVED",
-    message: `${customerName || "Customer"}: backordered ${
-      productName || "item"
-    } arrived (${qtyApplied}). Contact customer to schedule pickup/install.`,
+    message: `${customerName || "Customer"}: backordered ${productName || "item"} arrived (${qtyApplied}).`,
     orderId,
     orderItemId,
     productId,
@@ -292,11 +352,6 @@ export async function createBackorderArrivedTask({
 
 /**
  * COMPAT: Sell.jsx expects processOrderItem()
- * ✅ Now supports accurate pricing snapshot fields.
- *
- * Supports two calling styles:
- *  A) processOrderItem({ orderId, product, qty|quantity, createdBy, unitPrice, discountTotal, taxable })
- *  B) processOrderItem({ orderItemId, createdBy })
  */
 export async function processOrderItem(payload) {
   // Style B
@@ -313,12 +368,8 @@ export async function processOrderItem(payload) {
     orderId,
     product,
     createdBy = "",
-
-    // ✅ accept either qty or quantity (Sell.jsx compatibility)
     qty,
     quantity,
-
-    // ✅ pricing snapshot
     unitPrice = null,
     discountTotal = 0,
     taxable = true,
