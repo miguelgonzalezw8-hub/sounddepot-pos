@@ -49,33 +49,39 @@ export default function AccountsAdmin() {
     if (devMode) refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [devMode]);
+  
 
-  async function onCreate() {
-    if (!canCreate) return alert("Enter Account Name, Owner Email, and App URL.");
-    setSaving(true);
-    try {
-      localStorage.setItem("appUrl", appUrl.trim());
+ async function onCreate() {
+  console.log("[UI] onCreate clicked", { tenantName, ownerEmail, appUrl, canCreate });
 
-      const res = await createTenantAndInviteOwner({
-        tenantName: tenantName.trim(),
-        ownerEmail: ownerEmail.trim(),
-        appUrl: appUrl.trim(),
-      });
+  if (!canCreate) return alert("Enter Account Name, Owner Email, and App URL.");
 
-      alert(
-        `Account created.\nAccount Number: ${res.accountNumber}\nInvite: ${res.inviteId}\nEmail queued to: ${ownerEmail.trim()}`
-      );
+  setSaving(true);
+  try {
+    localStorage.setItem("appUrl", appUrl.trim());
 
-      setTenantName("");
-      setOwnerEmail("");
-      await refresh();
-    } catch (e) {
-      console.error(e);
-      alert(e?.message || String(e));
-    } finally {
-      setSaving(false);
-    }
+    console.log("[UI] calling createTenantAndInviteOwner...");
+    const res = await createTenantAndInviteOwner({
+      tenantName: tenantName.trim(),
+      ownerEmail: ownerEmail.trim(),
+      appUrl: appUrl.trim(),
+    });
+    console.log("[UI] createTenantAndInviteOwner result:", res);
+
+    alert(
+      `Account created.\nAccount Number: ${res.accountNumber}\nInvite: ${res.inviteId}\nEmail queued to: ${ownerEmail.trim()}`
+    );
+
+    setTenantName("");
+    setOwnerEmail("");
+    await refresh();
+  } catch (e) {
+    console.error("[UI] onCreate error:", e);
+    alert(e?.message || String(e));
+  } finally {
+    setSaving(false);
   }
+}
 
   async function onToggleActive(row) {
     try {

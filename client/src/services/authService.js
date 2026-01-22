@@ -121,6 +121,27 @@ export async function listPosAccountsForShop({
   const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   return includeInactive ? rows : rows.filter((r) => r.active);
 }
+// ================= INVITE LOOKUP (public) =================
+export async function loadInviteByToken(inviteId) {
+  const token = String(inviteId || "").trim();
+  if (!token) throw new Error("Missing invite token.");
+
+  // try tenantInvites first
+  const aRef = doc(db, "tenantInvites", token);
+  const aSnap = await getDoc(aRef);
+  if (aSnap.exists()) {
+    return { id: aSnap.id, collection: "tenantInvites", ...aSnap.data() };
+  }
+
+  // fallback to legacy invites
+  const bRef = doc(db, "invites", token);
+  const bSnap = await getDoc(bRef);
+  if (bSnap.exists()) {
+    return { id: bSnap.id, collection: "invites", ...bSnap.data() };
+  }
+
+  return null;
+}
 
 export async function createPosAccount({
   tenantId,
@@ -265,6 +286,27 @@ export async function deleteTenant(tenantId) {
   if (!tenantId) throw new Error("tenantId required");
   await deleteDoc(doc(db, "tenants", tenantId));
 }
+// ================= INVITE LOOKUP (public) =================
+export async function loadInviteByToken(inviteId) {
+  const token = String(inviteId || "").trim();
+  if (!token) throw new Error("Missing invite token.");
+
+  // try tenantInvites first
+  const aRef = doc(db, "tenantInvites", token);
+  const aSnap = await getDoc(aRef);
+  if (aSnap.exists()) {
+    return { id: aSnap.id, collection: "tenantInvites", ...aSnap.data() };
+  }
+
+  // fallback to legacy invites
+  const bRef = doc(db, "invites", token);
+  const bSnap = await getDoc(bRef);
+  if (bSnap.exists()) {
+    return { id: bSnap.id, collection: "invites", ...bSnap.data() };
+  }
+
+  return null;
+}
 
 /* ================= INVITES + EMAIL (Trigger Email extension) ================= */
 
@@ -307,7 +349,7 @@ export async function sendInviteEmail({
   if (!inviteId) throw new Error("Missing inviteId");
   if (!appUrl) throw new Error("Missing appUrl (your hosted site URL)");
 
-  const link = `${String(appUrl).replace(/\/$/, "")}/accept-invite?token=${encodeURIComponent(inviteId)}`;
+  const link = `${String(appUrl).replace(/\/$/, "")}/invite?token=${encodeURIComponent(inviteId)}`;
 
   const subject = "Your POS account is ready";
   const html = `

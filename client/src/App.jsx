@@ -33,6 +33,7 @@ import ManagerSecurity from "./pages/ManagerSecurity";
 import ManagerMenu from "./pages/ManagerMenu";
 import BackorderCenter from "./pages/BackorderCenter";
 import EmployeesAdmin from "./pages/EmployeesAdmin";
+import InviteCreateAccount from "./pages/InviteCreateAccount";
 
 /* ✅ DEV PAGES */
 import DevMenu from "./pages/DevMenu";
@@ -540,6 +541,7 @@ function AppInner() {
             <Route path="/dev/shops" element={<ShopsAdmin />} />
             <Route path="/accept-invite" element={<AcceptInvite />} />
 
+            <Route path="/invite" element={<InviteCreateAccount />} />
 
 
             <Route path="/print-receipt" element={<ReceiptPrint />} />
