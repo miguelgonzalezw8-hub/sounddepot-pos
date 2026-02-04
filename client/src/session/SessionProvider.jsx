@@ -119,6 +119,10 @@ export function SessionProvider({ children }) {
   function lock() {
     // ✅ dev never locks via PIN screen
     if (devMode) return;
+
+    // ✅ owner-mode terminals do not lock via PIN
+    if (terminal?.mode === "owner") return;
+
     setPosAccount(null);
   }
 
@@ -142,8 +146,14 @@ export function SessionProvider({ children }) {
       tenant,
       shop,
       posAccount,
-      // ✅ dev is always unlocked
-      isUnlocked: devMode ? true : !!posAccount,
+      // ✅ DEV always unlocked
+      // ✅ OWNER terminal unlocked if signed-in user exists (no PIN)
+      // ✅ SHARED terminal unlocked only if posAccount is set (PIN)
+      isUnlocked: devMode
+        ? true
+        : terminal?.mode === "owner"
+        ? !!firebaseUser
+        : !!posAccount,
       booting,
       unlocking,
       doUnlock,
@@ -151,7 +161,16 @@ export function SessionProvider({ children }) {
       resetTerminal,
       loadUserProfile,
     }),
-    [firebaseUser, devMode, terminal, tenant, shop, posAccount, booting, unlocking]
+    [
+      firebaseUser,
+      devMode,
+      terminal,
+      tenant,
+      shop,
+      posAccount,
+      booting,
+      unlocking,
+    ]
   );
 
   return (

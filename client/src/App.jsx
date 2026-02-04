@@ -373,9 +373,31 @@ function AppInner() {
   const location = useLocation();
   const hideLayout = location.pathname === "/print-receipt";
 
-  const { posAccount, devMode } = useSession();
+  const { posAccount, devMode, firebaseUser, terminal } = useSession();
 
+  // ✅ NEW: if owner terminal, use firebase user as the active "user"
   const user = useMemo(() => {
+    if (devMode) {
+      // dev can be treated like a manager; you can refine later
+      return {
+        uid: firebaseUser?.uid || null,
+        email: firebaseUser?.email || "dev",
+        role: "owner",
+        shopId: terminal?.shopId,
+        tenantId: terminal?.tenantId,
+      };
+    }
+
+    if (terminal?.mode === "owner") {
+      return {
+        uid: firebaseUser?.uid || null,
+        email: firebaseUser?.email || "owner",
+        role: "owner", // you can later load role from users/{uid}
+        shopId: terminal?.shopId,
+        tenantId: terminal?.tenantId,
+      };
+    }
+
     if (!posAccount) return null;
     return {
       uid: posAccount.id || null,
@@ -384,7 +406,7 @@ function AppInner() {
       shopId: posAccount.shopId,
       tenantId: posAccount.tenantId,
     };
-  }, [posAccount]);
+  }, [posAccount, devMode, firebaseUser, terminal]);
 
   const isManager = user?.role === "owner" || user?.role === "manager";
 
@@ -450,6 +472,7 @@ function AppInner() {
           <div className="px-4 py-3 border-t border-slate-800 text-xs text-slate-400">
             Signed in as: {user?.email}
             {isManager ? " (Manager)" : ""}
+            {terminal?.mode === "owner" ? " (OWNER TERMINAL)" : ""}
             {devMode ? " (DEV)" : ""}
           </div>
         </aside>
@@ -539,10 +562,10 @@ function AppInner() {
             <Route path="/dev" element={<DevMenu />} />
             <Route path="/dev/accounts" element={<AccountsAdmin />} />
             <Route path="/dev/shops" element={<ShopsAdmin />} />
+
+            {/* Onboarding */}
             <Route path="/accept-invite" element={<AcceptInvite />} />
-
             <Route path="/invite" element={<InviteCreateAccount />} />
-
 
             <Route path="/print-receipt" element={<ReceiptPrint />} />
           </Routes>
@@ -554,28 +577,51 @@ function AppInner() {
 
 /* ================= TERMINAL GATE ================= */
 function TerminalGate() {
-  const { terminal, booting, isUnlocked, firebaseUser, devMode } = useSession();
+  const location = useLocation();
+
+  const session = useSession();
+  const terminal = session.terminal;
+  const booting = session.booting;
+  const isUnlocked = session.isUnlocked;
+  const firebaseUser = session.firebaseUser;
+  const devMode = session.devMode;
+
+  const path = (location.pathname || "").toLowerCase();
+  const hash = (location.hash || "").toLowerCase();
+
+  const isOnboardingRoute =
+    path === "/invite" ||
+    path.startsWith("/invite") ||
+    path === "/accept-invite" ||
+    path.startsWith("/accept-invite") ||
+    hash.startsWith("#/invite") ||
+    hash.startsWith("#/accept-invite");
 
   if (booting) return <div style={{ padding: 20 }}>Loading…</div>;
 
-  // ✅ Dev can bypass terminal config and PIN
   if (devMode) return <AppInner />;
 
-  // 1) terminal not configured yet
+  // allow invite flow without terminal registration / auth / pin
+  if (isOnboardingRoute) return <AppInner />;
+
   if (!terminal?.tenantId || !terminal?.shopId) return <TerminalSetup />;
 
-  // terminal configured but device is not authenticated
   if (!firebaseUser) return <TerminalSetup />;
 
-  // 2) terminal configured + device authed, but user not unlocked via PIN
+  // ✅ OWNER TERMINAL: signed-in user gets in without PIN
+  if (terminal?.mode === "owner") return <AppInner />;
+
   if (!isUnlocked) return <LockScreen />;
 
   return <AppInner />;
 }
 
 function RequireManagerPin({ children }) {
-  const { posAccount, devMode } = useSession();
+  const { posAccount, devMode, terminal } = useSession();
   if (devMode) return children;
+
+  // ✅ owner terminal bypass
+  if (terminal?.mode === "owner") return children;
 
   const role = (posAccount?.role || "").toLowerCase();
   const ok = role === "owner" || role === "manager";
