@@ -3,20 +3,41 @@ import { useNavigate } from "react-router-dom";
 import { db } from "../../firebase";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { downloadCSV, money } from "./_reportUtils";
+import { useSession } from "../../session/SessionProvider"; // ✅ add
 
 export default function ReportInventoryValuation() {
   const navigate = useNavigate();
+
+  const { terminal, booting } = useSession(); // ✅ add
+  const tenantId = terminal?.tenantId; // ✅ add
+
   const [loading, setLoading] = useState(false);
   const [units, setUnits] = useState([]);
   const [err, setErr] = useState("");
 
   const load = async () => {
+    // ✅ prevent unscoped reads
+    if (booting) return;
+    if (!tenantId) {
+      setErr("Terminal not set up (missing tenant).");
+      return;
+    }
+
     setLoading(true);
     setErr("");
     try {
-      // inventory “on hand” includes in_stock + reserved (still yours)
-      const q1 = query(collection(db, "productUnits"), where("status", "==", "in_stock"));
-      const q2 = query(collection(db, "productUnits"), where("status", "==", "reserved"));
+      // inventory “on hand” includes in_stock + reserved
+      const q1 = query(
+        collection(db, "productUnits"),
+        where("tenantId", "==", tenantId), // ✅ add
+        where("status", "==", "in_stock")
+      );
+
+      const q2 = query(
+        collection(db, "productUnits"),
+        where("tenantId", "==", tenantId), // ✅ add
+        where("status", "==", "reserved")
+      );
 
       const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
       const all = [
@@ -37,8 +58,11 @@ export default function ReportInventoryValuation() {
   };
 
   useEffect(() => {
+    if (booting) return;
+    if (!tenantId) return;
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booting, tenantId]);
 
   const totals = useMemo(() => {
     let count = 0;

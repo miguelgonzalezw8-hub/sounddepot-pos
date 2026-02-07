@@ -1,18 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { useSession } from "../session/SessionProvider";
 
 export default function Customers() {
   const navigate = useNavigate();
+  const { terminal, booting } = useSession();
+  const tenantId = terminal?.tenantId;
+
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    return onSnapshot(collection(db, "customers"), (snap) => {
-      setCustomers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-  }, []);
+    if (booting) return;
+    if (!tenantId) return;
+
+    const qy = query(collection(db, "customers"), where("tenantId", "==", tenantId));
+
+    return onSnapshot(
+      qy,
+      (snap) => {
+        setCustomers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      (err) => console.error("[Customers] permission/index error:", err)
+    );
+  }, [booting, tenantId]);
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();

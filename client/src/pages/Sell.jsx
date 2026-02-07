@@ -6,6 +6,7 @@ import CheckoutModal from "../components/CheckoutModal";
 import { db } from "../firebase";
 import { processOrderItem } from "../services/orderService";
 import { getNextCounter, formatOrderNumber } from "../utils/counters";
+import { useSession } from "../session/SessionProvider";
 
 import {
   collection,
@@ -20,6 +21,9 @@ import {
 
 export default function Sell() {
   const navigate = useNavigate();
+
+  const { terminal, booting, isUnlocked, devMode } = useSession();
+  const tenantId = terminal?.tenantId;
 
   /* ================= STATE ================= */
   const [selectedVehicle, setSelectedVehicle] = useState(null);
@@ -52,7 +56,14 @@ export default function Sell() {
   });
 
   const createCustomerQuick = async () => {
+    if (!tenantId) {
+      alert("No tenant selected. Please set up the terminal.");
+      return;
+    }
+
     const payload = {
+      tenantId, // ✅ REQUIRED for rules
+
       type: newCust.type || "Retail",
       firstName: (newCust.firstName || "").trim(),
       lastName: (newCust.lastName || "").trim(),
@@ -60,8 +71,10 @@ export default function Sell() {
       phone: (newCust.phone || "").trim(),
       email: (newCust.email || "").trim(),
       notes: (newCust.notes || "").trim(),
+
       active: true,
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     };
 
     const hasName =
@@ -94,6 +107,11 @@ export default function Sell() {
   const finalizeOrderWithInventory = async ({ payment, totals }) => {
     console.log("[SELL] finalizeOrderWithInventory START", { cartLen: cart?.length });
 
+    if (!tenantId) {
+      alert("No tenant selected. Please set up the terminal.");
+      throw new Error("Checkout failed: missing tenantId.");
+    }
+
     const normalizedCart = (cart || []).map((i) => ({
       ...i,
       qty: Number(i.qty),
@@ -107,9 +125,7 @@ export default function Sell() {
           : "",
     }));
 
-    const badQty = normalizedCart.filter(
-      (i) => !Number.isFinite(i.qty) || i.qty <= 0
-    );
+    const badQty = normalizedCart.filter((i) => !Number.isFinite(i.qty) || i.qty <= 0);
     if (badQty.length) {
       console.error("[SELL] Checkout blocked: invalid qty item(s):", badQty);
       alert("Checkout blocked: one or more items has invalid quantity.");
@@ -139,6 +155,8 @@ export default function Sell() {
 
     console.log("[SELL] creating order doc...");
     const orderRef = await addDoc(collection(db, "orders"), {
+      tenantId, // ✅ REQUIRED for rules
+
       orderNumber,
       orderSeq: seq,
 
@@ -157,6 +175,7 @@ export default function Sell() {
 
       status: "OPEN",
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
 
     console.log("[SELL] order created:", orderRef.id, orderNumber);
@@ -184,14 +203,12 @@ export default function Sell() {
         taxable: true,
 
         serial: String(cartItem.serial || "").trim(),
-
-        // (service no longer uses window.confirm in your latest logic)
       });
 
       console.log("[SELL] processOrderItem DONE", { productId: product.id });
     }
 
-    // Order status updated by service updateOrderStatus(), but keep a safe final update:
+    // Safe final update
     await updateDoc(doc(db, "orders", orderRef.id), {
       updatedAt: serverTimestamp(),
     });
@@ -202,32 +219,57 @@ export default function Sell() {
 
   /* ================= LOAD DATA ================= */
   useEffect(() => {
-    return onSnapshot(
-      query(collection(db, "products"), where("active", "==", true)),
-      (snap) => setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    const qy = query(
+      collection(db, "products"),
+      where("tenantId", "==", tenantId),
+      where("active", "==", true)
     );
-  }, []);
+
+    return onSnapshot(qy, (snap) =>
+      setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
+  }, [booting, isUnlocked, devMode, tenantId]);
 
   useEffect(() => {
-    return onSnapshot(collection(db, "customers"), (snap) =>
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    const qy = query(collection(db, "customers"), where("tenantId", "==", tenantId));
+
+    return onSnapshot(qy, (snap) =>
       setCustomers(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     );
-  }, []);
+  }, [booting, isUnlocked, devMode, tenantId]);
 
   useEffect(() => {
-    return onSnapshot(collection(db, "installers"), (snap) =>
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    const qy = query(collection(db, "installers"), where("tenantId", "==", tenantId));
+
+    return onSnapshot(qy, (snap) =>
       setInstallers(
         snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((i) => i.active)
       )
     );
-  }, []);
+  }, [booting, isUnlocked, devMode, tenantId]);
 
   /* ================= HELD COUNT ================= */
   useEffect(() => {
-    return onSnapshot(collection(db, "heldReceipts"), (snap) =>
-      setHeldCount(snap.size)
-    );
-  }, []);
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    const qy = query(collection(db, "heldReceipts"), where("tenantId", "==", tenantId));
+
+    return onSnapshot(qy, (snap) => setHeldCount(snap.size));
+  }, [booting, isUnlocked, devMode, tenantId]);
 
   /* ================= RESUME HELD ================= */
   useEffect(() => {
@@ -305,9 +347,7 @@ export default function Sell() {
   const updateQty = (id, delta) => {
     setCart((prev) =>
       prev
-        .map((i) =>
-          i.cartId === id ? { ...i, qty: Number(i.qty || 0) + delta } : i
-        )
+        .map((i) => (i.cartId === id ? { ...i, qty: Number(i.qty || 0) + delta } : i))
         .filter((i) => Number(i.qty) > 0)
     );
   };
@@ -331,7 +371,14 @@ export default function Sell() {
   const holdReceipt = async (print = false) => {
     if (!cart.length) return;
 
+    if (!tenantId) {
+      alert("No tenant selected. Please set up the terminal.");
+      return;
+    }
+
     const payload = {
+      tenantId, // ✅ REQUIRED for rules
+
       cartItems: cart,
       customer: selectedCustomer ?? null,
       vehicle: selectedVehicle ?? null,
@@ -342,15 +389,13 @@ export default function Sell() {
       total,
       status: "held",
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     };
 
     const ref = await addDoc(collection(db, "heldReceipts"), payload);
 
     if (print) {
-      localStorage.setItem(
-        "currentReceipt",
-        JSON.stringify({ ...payload, id: ref.id })
-      );
+      localStorage.setItem("currentReceipt", JSON.stringify({ ...payload, id: ref.id }));
       window.location.href = "/print-receipt";
       return;
     }
@@ -388,7 +433,6 @@ export default function Sell() {
                     className="w-full h-10 px-3 rounded-lg border"
                   />
 
-                  {/* ✅ Add Customer restored */}
                   <button
                     type="button"
                     onClick={() => setAddCustomerOpen(true)}
@@ -402,9 +446,9 @@ export default function Sell() {
                   <div className="border rounded-lg mt-1 max-h-40 overflow-y-auto bg-white">
                     {customers
                       .filter((c) =>
-                        `${c.firstName || ""} ${c.lastName || ""} ${
-                          c.companyName || ""
-                        } ${c.phone || ""}`
+                        `${c.firstName || ""} ${c.lastName || ""} ${c.companyName || ""} ${
+                          c.phone || ""
+                        }`
                           .toLowerCase()
                           .includes(customerSearch.toLowerCase())
                       )
@@ -418,12 +462,9 @@ export default function Sell() {
                           className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
                         >
                           <strong>
-                            {c.companyName ||
-                              `${c.firstName || ""} ${c.lastName || ""}`}
+                            {c.companyName || `${c.firstName || ""} ${c.lastName || ""}`}
                           </strong>
-                          {c.phone && (
-                            <div className="text-xs text-gray-500">{c.phone}</div>
-                          )}
+                          {c.phone && <div className="text-xs text-gray-500">{c.phone}</div>}
                         </div>
                       ))}
                   </div>
@@ -433,14 +474,9 @@ export default function Sell() {
               <div className="flex justify-between items-center bg-gray-100 px-3 py-2 rounded-lg">
                 <span className="font-semibold text-sm">
                   {selectedCustomer.companyName ||
-                    `${selectedCustomer.firstName || ""} ${
-                      selectedCustomer.lastName || ""
-                    }`}
+                    `${selectedCustomer.firstName || ""} ${selectedCustomer.lastName || ""}`}
                 </span>
-                <button
-                  onClick={() => setSelectedCustomer(null)}
-                  className="text-xs text-red-600"
-                >
+                <button onClick={() => setSelectedCustomer(null)} className="text-xs text-red-600">
                   Clear
                 </button>
               </div>
@@ -506,9 +542,7 @@ export default function Sell() {
                   className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
                 >
                   <strong>{p.name}</strong>
-                  <div className="text-xs text-gray-500">
-                    ${Number(p.price || 0).toFixed(2)}
-                  </div>
+                  <div className="text-xs text-gray-500">${Number(p.price || 0).toFixed(2)}</div>
                 </div>
               ))}
           </div>
@@ -521,7 +555,6 @@ export default function Sell() {
               <div className="flex flex-col">
                 <span>{i.name}</span>
 
-                {/* Serial number scan bar */}
                 <input
                   value={i.serial || ""}
                   onChange={(e) => updateSerial(i.cartId, e.target.value)}
@@ -580,7 +613,7 @@ export default function Sell() {
         </div>
       </div>
 
-      {/* ✅ ADD CUSTOMER MODAL (in-app style) */}
+      {/* ADD CUSTOMER MODAL */}
       {addCustomerOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="w-[720px] max-w-[94vw] bg-white rounded-xl shadow-xl border p-5">
@@ -626,9 +659,7 @@ export default function Sell() {
                 <div className="text-xs font-bold text-slate-600 mb-1">First Name</div>
                 <input
                   value={newCust.firstName}
-                  onChange={(e) =>
-                    setNewCust((p) => ({ ...p, firstName: e.target.value }))
-                  }
+                  onChange={(e) => setNewCust((p) => ({ ...p, firstName: e.target.value }))}
                   className="w-full h-11 px-3 rounded-lg border"
                 />
               </div>
@@ -646,9 +677,7 @@ export default function Sell() {
                 <div className="text-xs font-bold text-slate-600 mb-1">Company</div>
                 <input
                   value={newCust.companyName}
-                  onChange={(e) =>
-                    setNewCust((p) => ({ ...p, companyName: e.target.value }))
-                  }
+                  onChange={(e) => setNewCust((p) => ({ ...p, companyName: e.target.value }))}
                   className="w-full h-11 px-3 rounded-lg border"
                   placeholder="Optional"
                 />

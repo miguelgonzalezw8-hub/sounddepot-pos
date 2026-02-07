@@ -3,9 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { db } from "../../firebase";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { downloadCSV, endOfDay, money, startOfDay, toISODateInput } from "./_reportUtils";
+import { useSession } from "../../session/SessionProvider"; // ✅ add
 
 export default function ReportSalesSummary() {
   const navigate = useNavigate();
+
+  const { terminal, booting } = useSession(); // ✅ add
+  const tenantId = terminal?.tenantId; // ✅ add
 
   const today = toISODateInput(new Date());
   const [from, setFrom] = useState(today);
@@ -16,15 +20,22 @@ export default function ReportSalesSummary() {
   const [err, setErr] = useState("");
 
   const load = async () => {
+    // ✅ prevent unscoped reads
+    if (booting) return;
+    if (!tenantId) {
+      setErr("Terminal not set up (missing tenant).");
+      return;
+    }
+
     setLoading(true);
     setErr("");
     try {
       const fromDate = startOfDay(from);
       const toDate = endOfDay(to);
 
-      // Firestore stores serverTimestamp -> Timestamp. Query with JS Date is OK.
       const qy = query(
         collection(db, "orders"),
+        where("tenantId", "==", tenantId), // ✅ add tenant scope
         where("createdAt", ">=", fromDate),
         where("createdAt", "<=", toDate)
       );
@@ -44,9 +55,11 @@ export default function ReportSalesSummary() {
   };
 
   useEffect(() => {
+    if (booting) return;
+    if (!tenantId) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [booting, tenantId]);
 
   const summary = useMemo(() => {
     let gross = 0;
@@ -54,14 +67,12 @@ export default function ReportSalesSummary() {
     let subtotal = 0;
     let discount = 0;
 
-    const payments = {}; // method -> total
+    const payments = {};
 
     for (const o of orders) {
       subtotal += Number(o.subtotal || 0);
       tax += Number(o.tax || 0);
       gross += Number(o.total || 0);
-
-      // optional: discount fields if you add later
       discount += Number(o.discountTotal || 0);
 
       const method =

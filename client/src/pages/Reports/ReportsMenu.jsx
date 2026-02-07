@@ -1,28 +1,21 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { getAuth } from "firebase/auth";
+import { useSession } from "../../session/SessionProvider";
 
 export default function ReportsMenu() {
   const navigate = useNavigate();
-  const [role, setRole] = useState("");
 
-  useEffect(() => {
-    const auth = getAuth();
-    (async () => {
-      try {
-        const user = auth.currentUser;
-        if (!user) return;
-        const tok = await user.getIdTokenResult();
-        setRole(tok?.claims?.role || "");
-      } catch (e) {
-        console.error(e);
-      }
-    })();
-  }, []);
+  const { terminal, posAccount, firebaseUser, devMode } = useSession();
+
+  // Match App.jsx logic: owner terminal + dev => manager access
+  const role = useMemo(() => {
+    if (devMode) return "owner";
+    if (terminal?.mode === "owner") return "owner";
+    return (posAccount?.role || "").toLowerCase();
+  }, [devMode, terminal, posAccount]);
 
   const isManager = role === "owner" || role === "manager";
 
-  // ✅ Reports-only grid (no dependency on any CSS file)
   const tilesGridStyle = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
@@ -34,11 +27,7 @@ export default function ReportsMenu() {
   return (
     <div className="inventory-container">
       <div className="search-row" style={{ display: "flex", gap: 8 }}>
-        <button
-          className="search-box"
-          style={{ width: 120 }}
-          onClick={() => navigate(-1)}
-        >
+        <button className="search-box" style={{ width: 120 }} onClick={() => navigate(-1)}>
           ← Back
         </button>
         <div style={{ flex: 1 }}>
@@ -49,7 +38,6 @@ export default function ReportsMenu() {
         </div>
       </div>
 
-      {/* ✅ Neat, responsive report tiles grid */}
       <div style={tilesGridStyle}>
         <div className="tile" onClick={() => navigate("/reports/sales-summary")}>
           <span className="tile-title">💵 Sales Summary</span>
@@ -66,10 +54,7 @@ export default function ReportsMenu() {
           <span className="tile-sub">Unit-based COGS (QB-ready)</span>
         </div>
 
-        <div
-          className="tile"
-          onClick={() => navigate("/reports/inventory-valuation")}
-        >
+        <div className="tile" onClick={() => navigate("/reports/inventory-valuation")}>
           <span className="tile-title">📦 Inventory Valuation</span>
           <span className="tile-sub">Cost value of on-hand units</span>
         </div>
@@ -87,9 +72,7 @@ export default function ReportsMenu() {
         {!isManager && (
           <div
             className="tile"
-            onClick={() =>
-              alert("Some accounting/admin reports will be manager-only later.")
-            }
+            onClick={() => alert("Some accounting/admin reports will be manager-only later.")}
           >
             <span className="tile-title">🔒 Manager Reports</span>
             <span className="tile-sub">More reports unlock with manager access</span>

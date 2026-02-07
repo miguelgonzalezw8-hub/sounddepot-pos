@@ -1,244 +1,219 @@
-// client/src/pages/HeldReceipts.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  collection,
-  onSnapshot,
-  deleteDoc,
-  doc,
-} from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
+import { useSession } from "../session/SessionProvider";
 
-function formatMoney(n) {
-  const x = Number(n || 0);
-  return x.toLocaleString(undefined, { style: "currency", currency: "USD" });
-}
-
-function tsToMillis(v) {
-  if (!v) return 0;
-  if (typeof v?.toMillis === "function") return v.toMillis();
-  if (typeof v?.toDate === "function") return v.toDate().getTime();
-  if (typeof v === "number") return v;
-  if (typeof v === "string") {
-    const d = new Date(v);
-    return Number.isNaN(d.getTime()) ? 0 : d.getTime();
-  }
-  return 0;
-}
-
-function safeDateLabel(v) {
-  const ms = tsToMillis(v);
-  if (!ms) return "";
-  try {
-    return new Date(ms).toLocaleString();
-  } catch {
-    return "";
-  }
-}
-
-function guessCustomerLabel(r) {
-  const c = r?.customer || null;
-  if (!c) return "Walk-in";
-
-  const name =
-    c.companyName ||
-    `${c.firstName || ""} ${c.lastName || ""}`.trim() ||
-    "";
-
-  return name || c.phone || "Walk-in";
-}
-
-function guessVehicleLabel(r) {
-  const v = r?.vehicle || null;
-  if (!v) return "";
-
-  if (typeof v === "string") return v;
-
-  const year = v.year || v.yr || "";
-  const make = v.make || "";
-  const model = v.model || "";
-  const trim = v.trim || "";
-
-  return [year, make, model, trim].filter(Boolean).join(" ");
-}
-
-function countItems(r) {
-  const items = Array.isArray(r?.cartItems) ? r.cartItems : [];
-  // sum qty, fallback 1
-  return items.reduce((s, it) => s + Number(it?.qty ?? 1), 0);
-}
-
-export default function HeldReceipts() {
+export default function EmployeesAdmin() {
   const navigate = useNavigate();
+  const { terminal, booting, isUnlocked, devMode } = useSession();
+  const tenantId = terminal?.tenantId;
 
   const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [qText, setQText] = useState("");
+  const [loadingList, setLoadingList] = useState(true);
 
+  const [saving, setSaving] = useState(false);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState("installer");
+  const [shopIdsText, setShopIdsText] = useState(""); // comma-separated
+  const [resetPassword, setResetPassword] = useState(true);
+
+  const [result, setResult] = useState(null);
+  const [err, setErr] = useState("");
+
+  // List employees in this tenant
   useEffect(() => {
-    setLoading(true);
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
 
-    // ✅ MATCHES YOUR SELL LOGIC:
-    // Sell writes held receipts with NO tenant/shop filters,
-    // so we must read the whole collection.
+    if (!tenantId) {
+      setRows([]);
+      setLoadingList(false);
+      return;
+    }
+
+    setLoadingList(true);
+    const qy = query(
+      collection(db, "users"),
+      where("tenantId", "==", tenantId),
+      orderBy("updatedAt", "desc")
+    );
+
     const unsub = onSnapshot(
-      collection(db, "heldReceipts"),
+      qy,
       (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-        // ✅ no index: sort locally by createdAt desc
-        list.sort((a, b) => tsToMillis(b.createdAt) - tsToMillis(a.createdAt));
-
-        setRows(list);
-        setLoading(false);
+        setRows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLoadingList(false);
       },
-      (err) => {
-        console.error("HeldReceipts snapshot error:", err);
-        alert(err?.message || String(err));
-        setLoading(false);
+      (e) => {
+        console.error(e);
+        setLoadingList(false);
       }
     );
 
     return () => unsub();
-  }, []);
+  }, [booting, isUnlocked, devMode, tenantId]);
 
-  const filtered = useMemo(() => {
-    const t = qText.trim().toLowerCase();
-    if (!t) return rows;
+  const parsedShopIds = useMemo(() => {
+    return shopIdsText
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }, [shopIdsText]);
 
-    return rows.filter((r) => {
-      const customer = guessCustomerLabel(r).toLowerCase();
-      const vehicle = guessVehicleLabel(r).toLowerCase();
-      const id = String(r.id || "").toLowerCase();
-      const status = String(r.status || "").toLowerCase();
+  const createLogin = async () => {
+    setErr("");
+    setResult(null);
 
-      return (
-        customer.includes(t) ||
-        vehicle.includes(t) ||
-        id.includes(t) ||
-        status.includes(t)
-      );
-    });
-  }, [rows, qText]);
+    if (!tenantId) {
+      setErr("No tenant selected. Please set up the terminal.");
+      return;
+    }
+    if (!email.trim()) {
+      setErr("Email is required.");
+      return;
+    }
 
-  function resumeHeld(r) {
-    if (!r?.id) return;
-
-    // ✅ THIS MATCHES YOUR SELL.jsx restore logic EXACTLY
-    // Sell checks sessionStorage.resumeReceipt and restores cart/customer/etc from it.
-    const payload = {
-      cartItems: r.cartItems || [],
-      customer: r.customer ?? null,
-      vehicle: r.vehicle ?? null,
-      installer: r.installer ?? null,
-      installAt: r.installAt ?? null,
-      subtotal: Number(r.subtotal || 0),
-      tax: Number(r.tax || 0),
-      total: Number(r.total || 0),
-    };
-
-    sessionStorage.setItem("resumeReceipt", JSON.stringify(payload));
-
-    // Optional: you can also store heldId if you want to delete after resume later
-    sessionStorage.setItem("resumeHeldId", r.id);
-
-    navigate("/sell");
-  }
-
-  async function removeHeld(r) {
-    if (!r?.id) return;
-    const ok = confirm(`Delete held receipt for "${guessCustomerLabel(r)}"?`);
-    if (!ok) return;
-
+    setSaving(true);
     try {
-      await deleteDoc(doc(db, "heldReceipts", r.id));
+      const fn = httpsCallable(getFunctions(), "createEmployeeLogin");
+      const res = await fn({
+        tenantId, // keep tenant-scoped to your terminal
+        email: email.trim(),
+        name: name.trim(),
+        role,
+        shopIds: parsedShopIds,
+        resetPassword,
+        hidePassword: false, // show once
+      });
+
+      setResult(res.data || null);
+
+      // clear form
+      setEmail("");
+      setName("");
+      setShopIdsText("");
     } catch (e) {
       console.error(e);
-      alert(e?.message || String(e));
+      setErr(e?.message || "Failed to create login.");
+    } finally {
+      setSaving(false);
     }
-  }
+  };
 
   return (
     <div className="inventory-container">
-      <div
-        className="search-row"
-        style={{ display: "flex", gap: 8, alignItems: "center" }}
-      >
-        <button
-          className="search-box"
-          style={{ width: 120 }}
-          onClick={() => navigate(-1)}
-        >
+      <div className="search-row" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button className="search-box" style={{ width: 120 }} onClick={() => navigate(-1)}>
           ← Back
         </button>
-
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>Held Receipts</div>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>Employee Logins</div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            Resume a cart that was put on hold
+            Create or reset employee login + set role/claims
+          </div>
+        </div>
+      </div>
+
+      <div className="table-wrapper" style={{ padding: 12 }}>
+        <div style={{ fontWeight: 900, marginBottom: 8 }}>Create / Reset Login</div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.7, marginBottom: 4 }}>Email</div>
+            <input className="search-box" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.7, marginBottom: 4 }}>Name</div>
+            <input className="search-box" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.7, marginBottom: 4 }}>Role</div>
+            <select className="search-box" value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="installer">installer</option>
+              <option value="manager">manager</option>
+              <option value="owner">owner</option>
+            </select>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.7, marginBottom: 4 }}>
+              Shop IDs (optional, comma separated)
+            </div>
+            <input
+              className="search-box"
+              value={shopIdsText}
+              onChange={(e) => setShopIdsText(e.target.value)}
+              placeholder="shop_1, shop_2"
+            />
           </div>
         </div>
 
-        <input
-          className="search-box"
-          placeholder="Search held receipts…"
-          value={qText}
-          onChange={(e) => setQText(e.target.value)}
-          style={{ width: 320 }}
-        />
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+          <input type="checkbox" checked={resetPassword} onChange={() => setResetPassword((v) => !v)} />
+          <span style={{ fontSize: 13 }}>Reset password / set temp password (recommended)</span>
+        </label>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button className="save-btn" onClick={createLogin} disabled={saving}>
+            {saving ? "Saving..." : "Create Login"}
+          </button>
+        </div>
+
+        {err && (
+          <div style={{ marginTop: 10, padding: 10, borderRadius: 12, border: "1px solid rgba(239,68,68,0.35)", background: "rgba(239,68,68,0.08)", color: "#991b1b", fontSize: 13 }}>
+            {err}
+          </div>
+        )}
+
+        {result?.ok && (
+          <div style={{ marginTop: 10, padding: 10, borderRadius: 12, border: "1px solid rgba(16,185,129,0.35)", background: "rgba(16,185,129,0.08)", color: "#065f46", fontSize: 13 }}>
+            <div style={{ fontWeight: 900 }}>Login created/updated</div>
+            <div>Email: {result.email}</div>
+            {result.tempPassword && (
+              <div style={{ marginTop: 6 }}>
+                Temp Password (show once): <b>{result.tempPassword}</b>
+              </div>
+            )}
+            <div style={{ marginTop: 6, opacity: 0.8 }}>They must sign out/in to refresh claims.</div>
+          </div>
+        )}
       </div>
 
       <div className="table-wrapper" style={{ marginTop: 10 }}>
-        {loading ? (
+        <div style={{ padding: 12, fontWeight: 900 }}>Employees in this tenant</div>
+
+        {loadingList ? (
           <div className="empty-state">Loading…</div>
-        ) : filtered.length === 0 ? (
-          <div className="empty-state">No held receipts.</div>
+        ) : !tenantId ? (
+          <div className="empty-state">No tenant selected.</div>
+        ) : rows.length === 0 ? (
+          <div className="empty-state">No employees found.</div>
         ) : (
           <table className="inventory-table">
             <thead>
               <tr>
-                <th style={{ width: 220 }}>Customer</th>
-                <th>Vehicle</th>
-                <th style={{ width: 110 }}>Items</th>
-                <th style={{ width: 140 }}>Total</th>
-                <th style={{ width: 220 }}>Created</th>
-                <th style={{ width: 240 }}>Actions</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>ShopIds</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => {
-                const created = safeDateLabel(r.createdAt);
-                return (
-                  <tr key={r.id}>
-                    <td style={{ fontWeight: 800 }}>{guessCustomerLabel(r)}</td>
-                    <td>{guessVehicleLabel(r)}</td>
-                    <td>{countItems(r)}</td>
-                    <td>{formatMoney(r.total)}</td>
-                    <td style={{ fontSize: 12, opacity: 0.8 }}>{created}</td>
-                    <td>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button
-                          className="search-box"
-                          style={{ width: 110 }}
-                          onClick={() => resumeHeld(r)}
-                        >
-                          Resume
-                        </button>
-                        <button
-                          className="search-box"
-                          style={{ width: 110 }}
-                          onClick={() => removeHeld(r)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                      <div style={{ marginTop: 6, fontSize: 11, opacity: 0.6 }}>
-                        id: {r.id}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {rows.map((u) => (
+                <tr key={u.id}>
+                  <td style={{ fontWeight: 800 }}>{u.name || "—"}</td>
+                  <td>{u.email || "—"}</td>
+                  <td>{u.role || "—"}</td>
+                  <td style={{ fontSize: 12, opacity: 0.8 }}>
+                    {Array.isArray(u.shopIds) ? u.shopIds.join(", ") : "—"}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}

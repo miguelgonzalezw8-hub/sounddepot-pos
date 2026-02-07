@@ -22,20 +22,24 @@ export default function AccountsAdmin() {
   const [appUrl, setAppUrl] = useState(() => localStorage.getItem("appUrl") || "");
   const [saving, setSaving] = useState(false);
 
+  // dev-only gate
   useEffect(() => {
     if (!devMode) navigate("/", { replace: true });
   }, [devMode, navigate]);
 
-  const canCreate = useMemo(
-    () => !!tenantName.trim() && !!ownerEmail.trim() && !!appUrl.trim(),
-    [tenantName, ownerEmail, appUrl]
-  );
+  const canCreate = useMemo(() => {
+    return !!tenantName.trim() && !!ownerEmail.trim() && !!appUrl.trim();
+  }, [tenantName, ownerEmail, appUrl]);
 
   async function refresh() {
     setLoading(true);
     try {
       const list = await listTenants({ includeInactive: true });
-      list.sort((a, b) => String(a.accountNumber || "").localeCompare(String(b.accountNumber || "")));
+
+      list.sort((a, b) =>
+        String(a.accountNumber || "").localeCompare(String(b.accountNumber || ""))
+      );
+
       setRows(list);
     } catch (e) {
       console.error(e);
@@ -49,39 +53,40 @@ export default function AccountsAdmin() {
     if (devMode) refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [devMode]);
-  
 
- async function onCreate() {
-  console.log("[UI] onCreate clicked", { tenantName, ownerEmail, appUrl, canCreate });
+  async function onCreate() {
+    console.log("[UI] onCreate clicked", { tenantName, ownerEmail, appUrl, canCreate });
 
-  if (!canCreate) return alert("Enter Account Name, Owner Email, and App URL.");
+    if (!canCreate) return alert("Enter Account Name, Owner Email, and App URL.");
 
-  setSaving(true);
-  try {
-    localStorage.setItem("appUrl", appUrl.trim());
+    setSaving(true);
+    try {
+      const cleanAppUrl = appUrl.trim();
+      localStorage.setItem("appUrl", cleanAppUrl);
 
-    console.log("[UI] calling createTenantAndInviteOwner...");
-    const res = await createTenantAndInviteOwner({
-      tenantName: tenantName.trim(),
-      ownerEmail: ownerEmail.trim(),
-      appUrl: appUrl.trim(),
-    });
-    console.log("[UI] createTenantAndInviteOwner result:", res);
+      console.log("[UI] calling createTenantAndInviteOwner...");
+      const res = await createTenantAndInviteOwner({
+        tenantName: tenantName.trim(),
+        ownerEmail: ownerEmail.trim(),
+        appUrl: cleanAppUrl,
+      });
 
-    alert(
-      `Account created.\nAccount Number: ${res.accountNumber}\nInvite: ${res.inviteId}\nEmail queued to: ${ownerEmail.trim()}`
-    );
+      console.log("[UI] createTenantAndInviteOwner result:", res);
 
-    setTenantName("");
-    setOwnerEmail("");
-    await refresh();
-  } catch (e) {
-    console.error("[UI] onCreate error:", e);
-    alert(e?.message || String(e));
-  } finally {
-    setSaving(false);
+      alert(
+        `Account created.\nAccount Number: ${res.accountNumber}\nInvite: ${res.inviteId}\nEmail queued to: ${ownerEmail.trim()}`
+      );
+
+      setTenantName("");
+      setOwnerEmail("");
+      await refresh();
+    } catch (e) {
+      console.error("[UI] onCreate error:", e);
+      alert(e?.message || String(e));
+    } finally {
+      setSaving(false);
+    }
   }
-}
 
   async function onToggleActive(row) {
     try {
@@ -96,8 +101,10 @@ export default function AccountsAdmin() {
   async function onRename(row) {
     const next = prompt(`Rename account "${row.accountNumber || row.id}"`, row.name || "");
     if (next == null) return;
+
     const trimmed = String(next).trim();
     if (!trimmed) return alert("Name cannot be empty.");
+
     try {
       await updateTenant(row.id, { name: trimmed });
       await refresh();
@@ -112,6 +119,7 @@ export default function AccountsAdmin() {
       `Delete account ${row.accountNumber || row.id}?\n\nThis will delete the tenant doc only (not shops/orders).`
     );
     if (!ok) return;
+
     try {
       await deleteTenant(row.id);
       await refresh();
@@ -132,23 +140,32 @@ export default function AccountsAdmin() {
   return (
     <div className="inventory-container">
       <div className="search-row" style={{ display: "flex", gap: 8 }}>
-        <button className="search-box" onClick={() => navigate(-1)} style={{ width: 120 }}>
+        <button
+          className="search-box"
+          onClick={() => navigate(-1)}
+          style={{ width: 120 }}
+        >
           ← Back
         </button>
+
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 900, fontSize: 18 }}>Accounts</div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>Dev-only: create tenants + auto-email invite</div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>
+            Dev-only: create tenants + auto-email invite
+          </div>
         </div>
       </div>
 
       <div className="table-wrapper" style={{ padding: 12, marginTop: 10 }}>
         <div style={{ fontWeight: 800, marginBottom: 8 }}>Email settings</div>
+
         <input
           className="search-box"
           placeholder="App URL (https://yourdomain.com)"
           value={appUrl}
           onChange={(e) => setAppUrl(e.target.value)}
         />
+
         <div style={{ fontSize: 12, opacity: 0.65, marginTop: 6 }}>
           This must match where your app is hosted. Invite links will send users here.
         </div>
@@ -164,12 +181,14 @@ export default function AccountsAdmin() {
             value={tenantName}
             onChange={(e) => setTenantName(e.target.value)}
           />
+
           <input
             className="search-box"
             placeholder="Owner email (they receive invite)"
             value={ownerEmail}
             onChange={(e) => setOwnerEmail(e.target.value)}
           />
+
           <button
             className="search-box"
             style={{ width: 160 }}
@@ -197,6 +216,7 @@ export default function AccountsAdmin() {
                 <th style={{ width: 320 }}>Actions</th>
               </tr>
             </thead>
+
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
@@ -204,15 +224,30 @@ export default function AccountsAdmin() {
                   <td>{r.name || "—"}</td>
                   <td style={{ fontSize: 12, opacity: 0.85 }}>{r.ownerEmail || "—"}</td>
                   <td>{r.active ? "Yes" : "No"}</td>
+
                   <td>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button className="search-box" style={{ width: 120 }} onClick={() => onRename(r)}>
+                      <button
+                        className="search-box"
+                        style={{ width: 120 }}
+                        onClick={() => onRename(r)}
+                      >
                         Rename
                       </button>
-                      <button className="search-box" style={{ width: 120 }} onClick={() => onToggleActive(r)}>
+
+                      <button
+                        className="search-box"
+                        style={{ width: 120 }}
+                        onClick={() => onToggleActive(r)}
+                      >
                         {r.active ? "Disable" : "Enable"}
                       </button>
-                      <button className="search-box" style={{ width: 120 }} onClick={() => onDelete(r)}>
+
+                      <button
+                        className="search-box"
+                        style={{ width: 120 }}
+                        onClick={() => onDelete(r)}
+                      >
                         Delete
                       </button>
                     </div>

@@ -3,9 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { db } from "../../firebase";
 import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
 import { downloadCSV, endOfDay, startOfDay, toISODateInput } from "./_reportUtils";
+import { useSession } from "../../session/SessionProvider"; // ✅ add
 
 export default function ReportBackorders() {
   const navigate = useNavigate();
+
+  const { terminal, booting } = useSession(); // ✅ add
+  const tenantId = terminal?.tenantId; // ✅ add
 
   const today = toISODateInput(new Date());
   const [from, setFrom] = useState(today);
@@ -16,6 +20,13 @@ export default function ReportBackorders() {
   const [err, setErr] = useState("");
 
   const run = async () => {
+    // ✅ prevent unscoped reads (would permission-deny)
+    if (booting) return;
+    if (!tenantId) {
+      setErr("Terminal not set up (missing tenant).");
+      return;
+    }
+
     setLoading(true);
     setErr("");
     try {
@@ -24,6 +35,7 @@ export default function ReportBackorders() {
 
       const qy = query(
         collection(db, "orderItems"),
+        where("tenantId", "==", tenantId), // ✅ add tenant scope
         where("orderCreatedAt", ">=", fromDate),
         where("orderCreatedAt", "<=", toDate),
         where("backorderedQty", ">", 0),
@@ -46,9 +58,11 @@ export default function ReportBackorders() {
   };
 
   useEffect(() => {
+    if (booting) return;
+    if (!tenantId) return;
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [booting, tenantId]);
 
   const totals = useMemo(() => {
     let qty = 0;
@@ -104,7 +118,17 @@ export default function ReportBackorders() {
       </div>
 
       {err && (
-        <div style={{ marginTop: 8, padding: 10, borderRadius: 12, border: "1px solid rgba(239,68,68,0.35)", background: "rgba(239,68,68,0.08)", color: "#991b1b", fontSize: 13 }}>
+        <div
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 12,
+            border: "1px solid rgba(239,68,68,0.35)",
+            background: "rgba(239,68,68,0.08)",
+            color: "#991b1b",
+            fontSize: 13,
+          }}
+        >
           {err}
         </div>
       )}
@@ -121,7 +145,11 @@ export default function ReportBackorders() {
           </thead>
           <tbody>
             {items.length === 0 ? (
-              <tr><td colSpan={4} className="empty-state">No backorders found.</td></tr>
+              <tr>
+                <td colSpan={4} className="empty-state">
+                  No backorders found.
+                </td>
+              </tr>
             ) : (
               items.map((r) => (
                 <tr key={r.id}>

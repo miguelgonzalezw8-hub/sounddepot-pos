@@ -1,8 +1,10 @@
+// client/src/pages/ManagerSecurity.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAuth } from "firebase/auth";
 import { db } from "../firebase";
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { useSession } from "../session/SessionProvider";
 
 async function sha256Hex(input) {
   const enc = new TextEncoder();
@@ -16,6 +18,9 @@ export default function ManagerSecurity() {
   const navigate = useNavigate();
   const auth = getAuth();
 
+  const { terminal } = useSession();
+  const tenantId = terminal?.tenantId || "";
+
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
   const [hasPin, setHasPin] = useState(false);
@@ -23,36 +28,50 @@ export default function ManagerSecurity() {
 
   const uid = auth.currentUser?.uid || null;
 
+  // ✅ tenant-scoped security doc (matches your multi-tenant approach)
+  const securityDocId = tenantId ? `security_${tenantId}` : "";
+  const securityRef = securityDocId ? doc(db, "settings", securityDocId) : null;
+
   useEffect(() => {
     (async () => {
       try {
-        const snap = await getDoc(doc(db, "settings", "security"));
+        if (!uid) return;
+        if (!tenantId) return; // terminal not configured yet
+        if (!securityRef) return;
+
+        const snap = await getDoc(securityRef);
         const pins = snap.exists() ? snap.data()?.managerPins || {} : {};
-        setHasPin(!!(uid && pins[uid]));
+        setHasPin(!!pins[uid]);
       } catch (e) {
         console.error(e);
       }
     })();
-  }, [uid]);
+  }, [uid, tenantId, securityDocId]); // keep deps simple
 
   const savePin = async () => {
     if (!uid) return alert("Not signed in.");
+    if (!tenantId) return alert("Terminal not configured (missing tenant).");
+    if (!securityRef) return alert("Security doc not ready.");
+
     if (!pin || pin.length < 4) return alert("PIN must be at least 4 digits/characters.");
     if (pin !== confirm) return alert("PIN confirmation does not match.");
 
     setLoading(true);
     try {
       const hash = await sha256Hex(pin);
-      const ref = doc(db, "settings", "security");
-      const snap = await getDoc(ref);
+
+      const snap = await getDoc(securityRef);
 
       if (!snap.exists()) {
-        await setDoc(ref, {
+        await setDoc(securityRef, {
+          tenantId, // ✅ store tenantId on doc for rules / auditing
           managerPins: { [uid]: hash },
           updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
         });
       } else {
-        await updateDoc(ref, {
+        await updateDoc(securityRef, {
+          tenantId, // keep it consistent
           [`managerPins.${uid}`]: hash,
           updatedAt: serverTimestamp(),
         });
@@ -66,7 +85,7 @@ export default function ManagerSecurity() {
       console.error(err);
       alert(
         err?.message?.includes("permission")
-          ? "Permission denied. Only managers can set PINs."
+          ? "Permission denied (rules)."
           : "Failed to save PIN."
       );
     } finally {
@@ -84,7 +103,7 @@ export default function ManagerSecurity() {
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 800, fontSize: 18 }}>Manager PIN</div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            Status: {hasPin ? "Set" : "Not set"}
+            Status: {hasPin ? "Set" : "Not set"} • Tenant: {tenantId || "—"}
           </div>
         </div>
       </div>
@@ -117,7 +136,7 @@ export default function ManagerSecurity() {
         </button>
 
         <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-          PINs are stored as a secure hash and are only readable by managers (if your rules lock it down).
+          PIN hashes are stored in <code>settings/{securityDocId || "security_<tenantId>"}</code>.
         </div>
       </div>
     </div>

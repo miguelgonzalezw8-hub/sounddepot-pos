@@ -12,9 +12,12 @@ import {
   doc,
   updateDoc,
 } from "firebase/firestore";
+import { useSession } from "../session/SessionProvider";
 
 export default function ProductCheckIn() {
   const navigate = useNavigate();
+  const { terminal, booting, isUnlocked, devMode } = useSession();
+  const tenantId = terminal?.tenantId;
 
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState("");
@@ -38,13 +41,26 @@ export default function ProductCheckIn() {
 
   const [saving, setSaving] = useState(false);
 
-  /* ================= LOAD PRODUCTS ================= */
+  /* ================= LOAD PRODUCTS =================
+     ✅ tenant-scoped + active products only
+  =================================================== */
   useEffect(() => {
-    const qy = query(collection(db, "products"), where("active", "==", true));
-    return onSnapshot(qy, (snap) =>
-      setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    const qy = query(
+      collection(db, "products"),
+      where("tenantId", "==", tenantId),
+      where("active", "==", true)
     );
-  }, []);
+
+    return onSnapshot(
+      qy,
+      (snap) => setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[ProductCheckIn products] permission/index error:", err)
+    );
+  }, [booting, devMode, isUnlocked, tenantId]);
 
   const filtered = useMemo(() => {
     const s = (search || "").trim().toLowerCase();
@@ -111,6 +127,10 @@ export default function ProductCheckIn() {
   };
 
   const submitCheckIn = async () => {
+    if (!tenantId) {
+      alert("No tenant selected. Please set up the terminal.");
+      return;
+    }
     if (!selectedProduct?.id) return;
 
     const isSerialized = trackMode === "serialized";
@@ -137,11 +157,15 @@ export default function ProductCheckIn() {
       const batch = writeBatch(db);
 
       const baseUnit = {
+        tenantId, // ✅ REQUIRED for rules
+
         productId: selectedProduct.id,
         productName: selectedProduct.name || "",
         sku: selectedProduct.sku || "",
 
-        status: "IN_STOCK",
+        // ✅ match your other code + reports (your reports use "in_stock"/"reserved")
+        status: "in_stock",
+
         receivedAt: serverTimestamp(),
         notes: note || "",
 
@@ -174,13 +198,13 @@ export default function ProductCheckIn() {
 
       await batch.commit();
 
-      // OPTIONAL: store lastCost on product for convenience (does NOT drive qty)
-      // If you don't want this, delete this block.
+      // OPTIONAL: store lastCost on product for convenience
       if (cost !== null) {
         try {
           await updateDoc(doc(db, "products", selectedProduct.id), {
             lastCost: cost,
             lastReceivedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
           });
         } catch (e) {
           // not fatal

@@ -1,11 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../../firebase";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { downloadCSV, endOfDay, money, startOfDay, toISODateInput } from "./_reportUtils";
+import { useSession } from "../../session/SessionProvider"; // ✅ add
 
 export default function ReportDailyCloseout() {
   const navigate = useNavigate();
+
+  const { terminal, booting } = useSession(); // ✅ add
+  const tenantId = terminal?.tenantId; // ✅ add
+
   const today = toISODateInput(new Date());
   const [day, setDay] = useState(today);
 
@@ -14,6 +19,13 @@ export default function ReportDailyCloseout() {
   const [err, setErr] = useState("");
 
   const run = async () => {
+    // ✅ prevent unscoped reads
+    if (booting) return;
+    if (!tenantId) {
+      setErr("Terminal not set up (missing tenant).");
+      return;
+    }
+
     setLoading(true);
     setErr("");
     try {
@@ -22,6 +34,7 @@ export default function ReportDailyCloseout() {
 
       const qy = query(
         collection(db, "orders"),
+        where("tenantId", "==", tenantId), // ✅ add tenant scope
         where("createdAt", ">=", fromDate),
         where("createdAt", "<=", toDate)
       );
@@ -39,6 +52,15 @@ export default function ReportDailyCloseout() {
       setLoading(false);
     }
   };
+
+  // Optional: auto-run once terminal is ready (keeps behavior close to other reports)
+  useEffect(() => {
+    if (booting) return;
+    if (!tenantId) return;
+    // don’t auto-run if you prefer manual only; remove these 2 lines if desired
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booting, tenantId]);
 
   const z = useMemo(() => {
     let gross = 0, tax = 0, subtotal = 0;

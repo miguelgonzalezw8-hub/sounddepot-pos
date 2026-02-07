@@ -166,6 +166,8 @@ function SimpleBarList({ rows = [] }) {
 /* ================= DASHBOARD ================= */
 function Dashboard() {
   const navigate = useNavigate();
+  const { terminal, booting } = useSession();
+  const tenantId = terminal?.tenantId;
 
   const [ordersToday, setOrdersToday] = useState([]);
   const [ordersMTD, setOrdersMTD] = useState([]);
@@ -173,13 +175,25 @@ function Dashboard() {
   const [ordersLast30, setOrdersLast30] = useState([]);
   const [installers, setInstallers] = useState([]);
 
+  // ✅ Tenant-scoped installers
   useEffect(() => {
-    return onSnapshot(collection(db, "installers"), (snap) => {
-      setInstallers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-  }, []);
+    if (booting) return;
+    if (!tenantId) return;
 
+    const unsub = onSnapshot(
+      query(collection(db, "installers"), where("tenantId", "==", tenantId)),
+      (snap) => setInstallers(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[Dashboard installers] permission/index error:", err)
+    );
+
+    return () => unsub();
+  }, [booting, tenantId]);
+
+  // ✅ Tenant-scoped orders (all 4 queries must include tenantId)
   useEffect(() => {
+    if (booting) return;
+    if (!tenantId) return;
+
     const now = new Date();
     const d0 = Timestamp.fromDate(startOfDayLocal(now));
     const m0 = Timestamp.fromDate(startOfMonthLocal(now));
@@ -189,23 +203,51 @@ function Dashboard() {
     const base = collection(db, "orders");
 
     const unsub1 = onSnapshot(
-      query(base, where("createdAt", ">=", d0), orderBy("createdAt", "desc"), limit(500)),
-      (snap) => setOrdersToday(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      query(
+        base,
+        where("tenantId", "==", tenantId),
+        where("createdAt", ">=", d0),
+        orderBy("createdAt", "desc"),
+        limit(500)
+      ),
+      (snap) => setOrdersToday(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[Dashboard ordersToday] permission/index error:", err)
     );
 
     const unsub2 = onSnapshot(
-      query(base, where("createdAt", ">=", m0), orderBy("createdAt", "desc"), limit(2000)),
-      (snap) => setOrdersMTD(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      query(
+        base,
+        where("tenantId", "==", tenantId),
+        where("createdAt", ">=", m0),
+        orderBy("createdAt", "desc"),
+        limit(2000)
+      ),
+      (snap) => setOrdersMTD(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[Dashboard ordersMTD] permission/index error:", err)
     );
 
     const unsub3 = onSnapshot(
-      query(base, where("createdAt", ">=", y0), orderBy("createdAt", "desc"), limit(8000)),
-      (snap) => setOrdersYTD(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      query(
+        base,
+        where("tenantId", "==", tenantId),
+        where("createdAt", ">=", y0),
+        orderBy("createdAt", "desc"),
+        limit(8000)
+      ),
+      (snap) => setOrdersYTD(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[Dashboard ordersYTD] permission/index error:", err)
     );
 
     const unsub4 = onSnapshot(
-      query(base, where("createdAt", ">=", last30), orderBy("createdAt", "asc"), limit(6000)),
-      (snap) => setOrdersLast30(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      query(
+        base,
+        where("tenantId", "==", tenantId),
+        where("createdAt", ">=", last30),
+        orderBy("createdAt", "asc"),
+        limit(6000)
+      ),
+      (snap) => setOrdersLast30(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[Dashboard ordersLast30] permission/index error:", err)
     );
 
     return () => {
@@ -214,7 +256,7 @@ function Dashboard() {
       unsub3();
       unsub4();
     };
-  }, []);
+  }, [booting, tenantId]);
 
   const calcTotals = (rows) => {
     const totalSales = rows.reduce((s, o) => s + Number(o.total || 0), 0);
@@ -278,7 +320,14 @@ function Dashboard() {
         </button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, marginTop: 20 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gap: 20,
+          marginTop: 20,
+        }}
+      >
         <div className="tile" onClick={() => navigate("/reports")}>
           <span className="tile-title">📊 Reports</span>
           <span className="tile-sub">Sales, Inventory, Accounting</span>
@@ -304,37 +353,78 @@ function Dashboard() {
         <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
           <div className="text-sm font-bold text-slate-700 dark:text-slate-200">Today (DTD)</div>
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <div><div className="text-xs text-slate-500">Sales</div><div className="text-xl font-bold">{formatMoney(dtd.totalSales)}</div></div>
-            <div><div className="text-xs text-slate-500">Orders</div><div className="text-xl font-bold">{dtd.count}</div></div>
-            <div><div className="text-xs text-slate-500">Tax</div><div className="text-lg font-semibold">{formatMoney(dtd.taxTotal)}</div></div>
-            <div><div className="text-xs text-slate-500">Avg Ticket</div><div className="text-lg font-semibold">{formatMoney(dtd.avg)}</div></div>
+            <div>
+              <div className="text-xs text-slate-500">Sales</div>
+              <div className="text-xl font-bold">{formatMoney(dtd.totalSales)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Orders</div>
+              <div className="text-xl font-bold">{dtd.count}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Tax</div>
+              <div className="text-lg font-semibold">{formatMoney(dtd.taxTotal)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Avg Ticket</div>
+              <div className="text-lg font-semibold">{formatMoney(dtd.avg)}</div>
+            </div>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
           <div className="text-sm font-bold text-slate-700 dark:text-slate-200">Month-to-date (MTD)</div>
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <div><div className="text-xs text-slate-500">Sales</div><div className="text-xl font-bold">{formatMoney(mtd.totalSales)}</div></div>
-            <div><div className="text-xs text-slate-500">Orders</div><div className="text-xl font-bold">{mtd.count}</div></div>
-            <div><div className="text-xs text-slate-500">Tax</div><div className="text-lg font-semibold">{formatMoney(mtd.taxTotal)}</div></div>
-            <div><div className="text-xs text-slate-500">Avg Ticket</div><div className="text-lg font-semibold">{formatMoney(mtd.avg)}</div></div>
+            <div>
+              <div className="text-xs text-slate-500">Sales</div>
+              <div className="text-xl font-bold">{formatMoney(mtd.totalSales)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Orders</div>
+              <div className="text-xl font-bold">{mtd.count}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Tax</div>
+              <div className="text-lg font-semibold">{formatMoney(mtd.taxTotal)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Avg Ticket</div>
+              <div className="text-lg font-semibold">{formatMoney(mtd.avg)}</div>
+            </div>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
           <div className="text-sm font-bold text-slate-700 dark:text-slate-200">Year-to-date (YTD)</div>
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <div><div className="text-xs text-slate-500">Sales</div><div className="text-xl font-bold">{formatMoney(ytd.totalSales)}</div></div>
-            <div><div className="text-xs text-slate-500">Orders</div><div className="text-xl font-bold">{ytd.count}</div></div>
-            <div><div className="text-xs text-slate-500">Tax</div><div className="text-lg font-semibold">{formatMoney(ytd.taxTotal)}</div></div>
-            <div><div className="text-xs text-slate-500">Avg Ticket</div><div className="text-lg font-semibold">{formatMoney(ytd.avg)}</div></div>
+            <div>
+              <div className="text-xs text-slate-500">Sales</div>
+              <div className="text-xl font-bold">{formatMoney(ytd.totalSales)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Orders</div>
+              <div className="text-xl font-bold">{ytd.count}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Tax</div>
+              <div className="text-lg font-semibold">{formatMoney(ytd.taxTotal)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500">Avg Ticket</div>
+              <div className="text-lg font-semibold">{formatMoney(ytd.avg)}</div>
+            </div>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4 xl:col-span-2">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-bold text-slate-700 dark:text-slate-200">Sales Over Time (Last 30 Days)</div>
-            <button onClick={() => navigate("/reports/sales-summary")} className="text-sm font-semibold text-slate-700 dark:text-slate-200 hover:underline">
+            <div className="text-sm font-bold text-slate-700 dark:text-slate-200">
+              Sales Over Time (Last 30 Days)
+            </div>
+            <button
+              onClick={() => navigate("/reports/sales-summary")}
+              className="text-sm font-semibold text-slate-700 dark:text-slate-200 hover:underline"
+            >
               View report →
             </button>
           </div>
@@ -375,10 +465,9 @@ function AppInner() {
 
   const { posAccount, devMode, firebaseUser, terminal } = useSession();
 
-  // ✅ NEW: if owner terminal, use firebase user as the active "user"
+  // ✅ if owner terminal, use firebase user as active "user"
   const user = useMemo(() => {
     if (devMode) {
-      // dev can be treated like a manager; you can refine later
       return {
         uid: firebaseUser?.uid || null,
         email: firebaseUser?.email || "dev",
@@ -392,7 +481,7 @@ function AppInner() {
       return {
         uid: firebaseUser?.uid || null,
         email: firebaseUser?.email || "owner",
-        role: "owner", // you can later load role from users/{uid}
+        role: "owner",
         shopId: terminal?.shopId,
         tenantId: terminal?.tenantId,
       };

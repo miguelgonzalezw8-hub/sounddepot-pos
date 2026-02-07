@@ -10,6 +10,9 @@ import {
   deletePosAccount,
 } from "../services/authService";
 
+// ✅ for email-login invites (Firebase Auth login)
+import { getFunctions, httpsCallable } from "firebase/functions";
+
 export default function EmployeesAdmin() {
   const navigate = useNavigate();
   const { terminal, posAccount, devMode } = useSession();
@@ -22,14 +25,25 @@ export default function EmployeesAdmin() {
     return r === "owner" || r === "manager";
   }, [posAccount?.role]);
 
+  const canEdit = devMode || isManager;
+
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // form
+  // =========================
+  // PIN EMPLOYEE (POS ACCOUNT) FORM
+  // =========================
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [role, setRole] = useState("sales");
   const [saving, setSaving] = useState(false);
+
+  // =========================
+  // EMAIL LOGIN INVITE FORM
+  // =========================
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("sales");
+  const [inviting, setInviting] = useState(false);
 
   async function refresh() {
     if (!tenantId || !shopId) return;
@@ -61,8 +75,11 @@ export default function EmployeesAdmin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId, shopId]);
 
+  // =========================
+  // PIN ACCOUNT ACTIONS (existing strategy)
+  // =========================
   async function onCreate() {
-    if (!(devMode || isManager)) return alert("Not authorized.");
+    if (!canEdit) return alert("Not authorized.");
     if (!tenantId || !shopId) return alert("Terminal not configured.");
     if (!String(name || "").trim()) return alert("Name is required.");
     if (String(pin || "").trim().length < 3) return alert("PIN must be at least 3 digits.");
@@ -91,7 +108,7 @@ export default function EmployeesAdmin() {
   }
 
   async function onToggleActive(emp) {
-    if (!(devMode || isManager)) return alert("Not authorized.");
+    if (!canEdit) return alert("Not authorized.");
     const next = !emp.active;
 
     if (emp.id === posAccount?.id && next === false) {
@@ -108,7 +125,7 @@ export default function EmployeesAdmin() {
   }
 
   async function onChangePin(emp) {
-    if (!(devMode || isManager)) return alert("Not authorized.");
+    if (!canEdit) return alert("Not authorized.");
     const next = prompt(`Set new PIN for ${emp.name || emp.id}:`, "");
     if (next == null) return;
 
@@ -125,7 +142,7 @@ export default function EmployeesAdmin() {
   }
 
   async function onChangeRole(emp) {
-    if (!(devMode || isManager)) return alert("Not authorized.");
+    if (!canEdit) return alert("Not authorized.");
     const next = prompt(
       `Set role for ${emp.name || emp.id} (sales / installer / manager / owner):`,
       emp.role || "sales"
@@ -151,7 +168,7 @@ export default function EmployeesAdmin() {
   }
 
   async function onDelete(emp) {
-    if (!(devMode || isManager)) return alert("Not authorized.");
+    if (!canEdit) return alert("Not authorized.");
     if (emp.id === posAccount?.id) return alert("You can’t delete the currently unlocked account.");
 
     const ok = confirm(`Delete ${emp.name || emp.id}? (Recommended: disable instead)`);
@@ -163,6 +180,45 @@ export default function EmployeesAdmin() {
     } catch (e) {
       console.error(e);
       alert(e?.message || String(e));
+    }
+  }
+
+  // =========================
+  // EMAIL LOGIN INVITE (Firebase Auth)
+  // Requires Cloud Function: inviteEmployeeLogin
+  // =========================
+  async function onInviteLogin() {
+    if (!canEdit) return alert("Not authorized.");
+    if (!tenantId) return alert("Terminal not configured.");
+    if (!shopId) return alert("Terminal not configured.");
+
+    const em = String(inviteEmail || "").trim().toLowerCase();
+    if (!em || !em.includes("@")) return alert("Enter a valid email.");
+
+    const r = String(inviteRole || "").trim().toLowerCase();
+    if (!["sales", "installer", "manager", "owner"].includes(r)) {
+      return alert("Role must be one of: sales, installer, manager, owner");
+    }
+
+    setInviting(true);
+    try {
+      const fn = httpsCallable(getFunctions(), "inviteEmployeeLogin");
+      await fn({
+        tenantId,
+        email: em,
+        role: r,
+        shopIds: shopId ? [shopId] : [],
+        appUrl: window.location.origin,
+      });
+
+      alert("Invite sent.");
+      setInviteEmail("");
+      setInviteRole("sales");
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || String(e));
+    } finally {
+      setInviting(false);
     }
   }
 
@@ -183,30 +239,82 @@ export default function EmployeesAdmin() {
         </div>
       </div>
 
+      {/* =========================
+          ADD EMPLOYEE (PIN) + INVITE LOGIN (EMAIL)
+         ========================= */}
       <div className="table-wrapper" style={{ padding: 12, marginTop: 10 }}>
         <div style={{ fontWeight: 800, marginBottom: 8 }}>Add Employee</div>
 
-        {!(devMode || isManager) ? (
+        {!canEdit ? (
           <div style={{ opacity: 0.7 }}>
             Not authorized. (Unlock with a manager PIN to edit employees.)
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr auto", gap: 8 }}>
-            <input className="search-box" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-            <input className="search-box" placeholder="PIN (3-8 digits)" value={pin} onChange={(e) => setPin(e.target.value)} />
-            <select className="search-box" value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="sales">sales</option>
-              <option value="installer">installer</option>
-              <option value="manager">manager</option>
-              <option value="owner">owner</option>
-            </select>
-            <button className="search-box" style={{ width: 120 }} disabled={saving} onClick={onCreate}>
-              {saving ? "Saving..." : "Add"}
-            </button>
-          </div>
+          <>
+            {/* PIN employee creation (existing strategy) */}
+            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr auto", gap: 8 }}>
+              <input
+                className="search-box"
+                placeholder="Name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <input
+                className="search-box"
+                placeholder="PIN (3-8 digits)"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+              />
+              <select className="search-box" value={role} onChange={(e) => setRole(e.target.value)}>
+                <option value="sales">sales</option>
+                <option value="installer">installer</option>
+                <option value="manager">manager</option>
+                <option value="owner">owner</option>
+              </select>
+              <button className="search-box" style={{ width: 120 }} disabled={saving} onClick={onCreate}>
+                {saving ? "Saving..." : "Add"}
+              </button>
+            </div>
+
+            {/* EMAIL login invite */}
+            <div style={{ marginTop: 12, fontWeight: 800 }}>Invite Email Login (optional)</div>
+            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
+              Sends a “Create Account” link for Firebase Auth login (email/password).
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr auto", gap: 8, marginTop: 8 }}>
+              <input
+                className="search-box"
+                placeholder="Employee email (name@domain.com)"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+              />
+              <select
+                className="search-box"
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value)}
+              >
+                <option value="sales">sales</option>
+                <option value="installer">installer</option>
+                <option value="manager">manager</option>
+                <option value="owner">owner</option>
+              </select>
+              <button
+                className="search-box"
+                style={{ width: 140 }}
+                disabled={inviting}
+                onClick={onInviteLogin}
+              >
+                {inviting ? "Sending..." : "Send Invite"}
+              </button>
+            </div>
+          </>
         )}
       </div>
 
+      {/* =========================
+          EMPLOYEE LIST
+         ========================= */}
       <div className="table-wrapper" style={{ marginTop: 10 }}>
         {loading ? (
           <div className="empty-state">Loading…</div>
@@ -235,16 +343,32 @@ export default function EmployeesAdmin() {
                   <td>{emp.active ? "Yes" : "No"}</td>
                   <td>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button className="search-box" style={{ width: 120 }} onClick={() => onChangePin(emp)}>
+                      <button
+                        className="search-box"
+                        style={{ width: 120 }}
+                        onClick={() => onChangePin(emp)}
+                      >
                         Change PIN
                       </button>
-                      <button className="search-box" style={{ width: 120 }} onClick={() => onChangeRole(emp)}>
+                      <button
+                        className="search-box"
+                        style={{ width: 120 }}
+                        onClick={() => onChangeRole(emp)}
+                      >
                         Change Role
                       </button>
-                      <button className="search-box" style={{ width: 120 }} onClick={() => onToggleActive(emp)}>
+                      <button
+                        className="search-box"
+                        style={{ width: 120 }}
+                        onClick={() => onToggleActive(emp)}
+                      >
                         {emp.active ? "Disable" : "Enable"}
                       </button>
-                      <button className="search-box" style={{ width: 120 }} onClick={() => onDelete(emp)}>
+                      <button
+                        className="search-box"
+                        style={{ width: 120 }}
+                        onClick={() => onDelete(emp)}
+                      >
                         Delete
                       </button>
                     </div>

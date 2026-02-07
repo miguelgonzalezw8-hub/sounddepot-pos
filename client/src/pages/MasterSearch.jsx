@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { db } from "../firebase";
-import { collection, onSnapshot, orderBy, limit, query } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, limit, query, where } from "firebase/firestore";
+import { useSession } from "../session/SessionProvider";
 
 function norm(s) {
   return String(s || "").toLowerCase().trim();
@@ -16,6 +17,9 @@ function includesAny(hay, q) {
 export default function MasterSearch() {
   const navigate = useNavigate();
 
+  const { terminal, booting } = useSession();
+  const tenantId = terminal?.tenantId;
+
   const [term, setTerm] = useState("");
 
   const [customers, setCustomers] = useState([]);
@@ -24,24 +28,51 @@ export default function MasterSearch() {
   const [backorders, setBackorders] = useState([]);
 
   useEffect(() => {
+    if (booting) return;
+    if (!tenantId) return;
+
     const unsub1 = onSnapshot(
-      query(collection(db, "customers"), orderBy("createdAt", "desc"), limit(400)),
-      (snap) => setCustomers(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      query(
+        collection(db, "customers"),
+        where("tenantId", "==", tenantId),
+        orderBy("createdAt", "desc"),
+        limit(400)
+      ),
+      (snap) => setCustomers(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[MasterSearch customers] permission/index error:", err)
     );
 
     const unsub2 = onSnapshot(
-      query(collection(db, "products"), orderBy("createdAt", "desc"), limit(400)),
-      (snap) => setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      query(
+        collection(db, "products"),
+        where("tenantId", "==", tenantId),
+        orderBy("createdAt", "desc"),
+        limit(400)
+      ),
+      (snap) => setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[MasterSearch products] permission/index error:", err)
     );
 
     const unsub3 = onSnapshot(
-      query(collection(db, "orders"), orderBy("createdAt", "desc"), limit(600)),
-      (snap) => setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      query(
+        collection(db, "orders"),
+        where("tenantId", "==", tenantId),
+        orderBy("createdAt", "desc"),
+        limit(600)
+      ),
+      (snap) => setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[MasterSearch orders] permission/index error:", err)
     );
 
     const unsub4 = onSnapshot(
-      query(collection(db, "backorders"), orderBy("createdAt", "desc"), limit(600)),
-      (snap) => setBackorders(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+      query(
+        collection(db, "backorders"),
+        where("tenantId", "==", tenantId),
+        orderBy("createdAt", "desc"),
+        limit(600)
+      ),
+      (snap) => setBackorders(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("[MasterSearch backorders] permission/index error:", err)
     );
 
     return () => {
@@ -50,7 +81,7 @@ export default function MasterSearch() {
       unsub3();
       unsub4();
     };
-  }, []);
+  }, [booting, tenantId]);
 
   const q = useMemo(() => norm(term), [term]);
 
@@ -139,11 +170,7 @@ export default function MasterSearch() {
                   <button
                     key={o.id}
                     className="w-full text-left px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-slate-800"
-                    onClick={() => {
-                      // If you later add OrderDetail, route it here.
-                      // For now, just jump to Reports Backorders/Sales Summary, or keep it as a “read” future feature.
-                      navigate("/reports/sales-summary");
-                    }}
+                    onClick={() => navigate("/reports/sales-summary")}
                   >
                     <div className="flex items-center justify-between">
                       <div className="font-semibold">

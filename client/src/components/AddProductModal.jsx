@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import "./AddProductModal.css";
 
 import { db, storage } from "../firebase";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, where } from "firebase/firestore";
 
 import {
   ref,
@@ -12,6 +12,8 @@ import {
   deleteObject,
 } from "firebase/storage";
 
+import { useSession } from "../session/SessionProvider";
+
 const SPEAKER_SIZES = ["2.75", "3.5", "4", "5.25", "6.5", "6x8", "6x9", "8"];
 
 export default function AddProductModal({
@@ -19,7 +21,11 @@ export default function AddProductModal({
   onClose,
   onSave,
   editingItem,
+  brands: brandsProp, // ✅ optional (Inventory can pass tenant-scoped brands)
 }) {
+  const { terminal, booting } = useSession();
+  const tenantId = terminal?.tenantId;
+
   /* ================= STATE ================= */
   const [saving, setSaving] = useState(false);
 
@@ -45,23 +51,43 @@ export default function AddProductModal({
   const [subbrands, setSubbrands] = useState([]);
   const [showSubbrand, setShowSubbrand] = useState(false);
 
+  // Prefer passed-in tenant brands (same strategy), otherwise load tenant-scoped here.
+  useEffect(() => {
+    if (Array.isArray(brandsProp) && brandsProp.length >= 0) {
+      setBrands(brandsProp);
+    }
+  }, [brandsProp]);
+
   /* -------------------------------
-     Load brands from Firestore
+     Load brands from Firestore (TENANT-SCOPED)
+     (Only used if parent doesn't pass brands)
   -------------------------------- */
   useEffect(() => {
-    const q = query(collection(db, "brands"), orderBy("brandName"));
+    if (Array.isArray(brandsProp)) return; // parent is providing it
+    if (booting) return;
+    if (!tenantId) return;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setBrands(
-        snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }))
-      );
-    });
+    const qy = query(
+      collection(db, "brands"),
+      where("tenantId", "==", tenantId),
+      orderBy("brandName")
+    );
+
+    const unsubscribe = onSnapshot(
+      qy,
+      (snapshot) => {
+        setBrands(
+          snapshot.docs.map((docSnap) => ({
+            id: docSnap.id,
+            ...docSnap.data(),
+          }))
+        );
+      },
+      (err) => console.error("[AddProductModal brands] permission/index error:", err)
+    );
 
     return () => unsubscribe();
-  }, []);
+  }, [brandsProp, booting, tenantId]);
 
   /* -------------------------------
      Preload form when editing / reset when adding
@@ -93,7 +119,7 @@ export default function AddProductModal({
       setImageFile(null);
       setImagePreview(editingItem.imageUrl || null);
 
-      const brand = brands.find((b) => b.brandName === editingItem.brand);
+      const brand = brands.find((b) => (b.brandName || b.name) === editingItem.brand);
       if (brand?.enableSubbrands) {
         setSubbrands(brand.subbrands || []);
         setShowSubbrand(true);
@@ -147,7 +173,7 @@ export default function AddProductModal({
       subBrand: "",
     }));
 
-    const brand = brands.find((b) => b.brandName === value);
+    const brand = brands.find((b) => (b.brandName || b.name) === value);
 
     if (brand?.enableSubbrands) {
       setSubbrands(brand.subbrands || []);
@@ -167,7 +193,6 @@ export default function AddProductModal({
 
   /* -------------------------------
      Upload helper (resumable)
-     (Fixed: avoids "task before initialization")
   -------------------------------- */
   const uploadImageResumable = (file, path) => {
     return new Promise((resolve, reject) => {
@@ -209,9 +234,16 @@ export default function AddProductModal({
 
   /* -------------------------------
      Save (with image upload + replace old file)
+     ✅ Ensure tenantId is included (rules)
   -------------------------------- */
   const handleSubmit = async () => {
     if (saving) return;
+
+    if (!tenantId) {
+      alert("No tenant selected. Please set up the terminal.");
+      return;
+    }
+
     setSaving(true);
 
     try {
@@ -242,6 +274,7 @@ export default function AddProductModal({
 
       await onSave({
         ...form,
+        tenantId, // ✅ REQUIRED
         imageUrl,
         imagePath,
       });
@@ -295,8 +328,8 @@ export default function AddProductModal({
             >
               <option value="">Select Brand</option>
               {brands.map((b) => (
-                <option key={b.id} value={b.brandName}>
-                  {b.brandName}
+                <option key={b.id} value={b.brandName || b.name}>
+                  {b.brandName || b.name}
                 </option>
               ))}
             </select>

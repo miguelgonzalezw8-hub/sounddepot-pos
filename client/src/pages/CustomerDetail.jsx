@@ -2,249 +2,237 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { db } from "../firebase";
 import {
+  addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
-  onSnapshot,
-  query,
+  serverTimestamp,
   updateDoc,
-  where,
-  orderBy,
 } from "firebase/firestore";
+import { useSession } from "../session/SessionProvider";
 
 export default function CustomerDetail() {
   const navigate = useNavigate();
   const { id } = useParams();
 
-  const [customer, setCustomer] = useState(null);
-  const [draft, setDraft] = useState(null);
+  const { terminal, booting } = useSession();
+  const tenantId = terminal?.tenantId;
+
+  const isNew = (id || "").toLowerCase() === "new";
+
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
 
-  const [orders, setOrders] = useState([]);
+  const [customer, setCustomer] = useState(null);
 
-  useEffect(() => {
-    let unsubOrders = null;
+  const [companyName, setCompanyName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [type, setType] = useState("Retail");
+  const [notes, setNotes] = useState("");
 
-    (async () => {
-      const snap = await getDoc(doc(db, "customers", id));
-      if (!snap.exists()) {
-        setCustomer(null);
-        setDraft(null);
-        return;
-      }
-
-      const data = { id: snap.id, ...snap.data() };
-      setCustomer(data);
-      setDraft({
-        type: data.type || "Retail",
-        firstName: data.firstName || "",
-        lastName: data.lastName || "",
-        companyName: data.companyName || "",
-        phone: data.phone || "",
-        email: data.email || "",
-        notes: data.notes || "",
-      });
-
-      // purchase history (orders)
-      const qy = query(
-        collection(db, "orders"),
-        where("customerId", "==", id),
-        orderBy("createdAt", "desc")
-      );
-
-      unsubOrders = onSnapshot(qy, (s) => {
-        setOrders(s.docs.map((d) => ({ id: d.id, ...d.data() })));
-      });
-    })();
-
-    return () => {
-      if (unsubOrders) unsubOrders();
-    };
-  }, [id]);
-
-  const displayName = useMemo(() => {
-    if (!customer) return "";
+  const title = useMemo(() => {
+    if (isNew) return "Add Customer";
+    if (!customer) return "Customer";
     return (
       customer.companyName ||
       `${customer.firstName || ""} ${customer.lastName || ""}`.trim() ||
       "Customer"
     );
-  }, [customer]);
+  }, [customer, isNew]);
 
-  const save = async () => {
-    if (!draft) return;
+  useEffect(() => {
+    if (booting) return;
+    if (!tenantId) return;
+
+    // ✅ CREATE MODE: no read
+    if (isNew) {
+      setCustomer(null);
+      setCompanyName("");
+      setFirstName("");
+      setLastName("");
+      setPhone("");
+      setEmail("");
+      setType("Retail");
+      setNotes("");
+      setErr("");
+      setLoading(false);
+      return;
+    }
+
+    if (!id) return;
+
+    (async () => {
+      setLoading(true);
+      setErr("");
+      try {
+        const ref = doc(db, "customers", id);
+        const snap = await getDoc(ref);
+
+        if (!snap.exists()) {
+          setCustomer(null);
+          setErr("Customer not found.");
+          return;
+        }
+
+        const data = { id: snap.id, ...snap.data() };
+
+        // extra safety
+        if (data.tenantId && data.tenantId !== tenantId) {
+          setCustomer(null);
+          setErr("Not authorized.");
+          return;
+        }
+
+        setCustomer(data);
+        setCompanyName(data.companyName || "");
+        setFirstName(data.firstName || "");
+        setLastName(data.lastName || "");
+        setPhone(data.phone || "");
+        setEmail(data.email || "");
+        setType(data.type || "Retail");
+        setNotes(data.notes || "");
+      } catch (e) {
+        console.error(e);
+        setErr(e?.message?.includes("permission") ? "Permission denied." : "Failed to load customer.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [booting, tenantId, id, isNew]);
+
+  const onSave = async () => {
+    if (booting) return;
+    if (!tenantId) {
+      setErr("Terminal not set up (missing tenant).");
+      return;
+    }
+
     setSaving(true);
+    setErr("");
     try {
-      await updateDoc(doc(db, "customers", id), {
-        type: draft.type || "Retail",
-        firstName: (draft.firstName || "").trim(),
-        lastName: (draft.lastName || "").trim(),
-        companyName: (draft.companyName || "").trim(),
-        phone: (draft.phone || "").trim(),
-        email: (draft.email || "").trim(),
-        notes: (draft.notes || "").trim(),
-        updatedAt: new Date(),
-      });
-      alert("Customer updated.");
+      const payload = {
+        tenantId,
+        companyName: companyName || "",
+        firstName: firstName || "",
+        lastName: lastName || "",
+        phone: phone || "",
+        email: email || "",
+        type: type || "Retail",
+        notes: notes || "",
+        updatedAt: serverTimestamp(),
+      };
+
+      if (isNew) {
+        // ✅ CREATE
+        const ref = await addDoc(collection(db, "customers"), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+        navigate(`/customers/${ref.id}`);
+      } else {
+        // ✅ UPDATE
+        await updateDoc(doc(db, "customers", id), payload);
+        navigate(-1);
+      }
     } catch (e) {
       console.error(e);
-      alert("Save failed. See console.");
+      setErr(e?.message?.includes("permission") ? "Permission denied." : "Failed to save customer.");
     } finally {
       setSaving(false);
     }
   };
 
-  if (!draft) {
-    return (
-      <div className="inventory-container">
-        <button
-          onClick={() => navigate("/customers")}
-          className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-semibold"
-        >
-          ← Back
-        </button>
-        <div className="mt-4 text-slate-500">Loading customer…</div>
-      </div>
-    );
-  }
+  const onDelete = async () => {
+    if (isNew) return;
+    if (!window.confirm("Delete this customer?")) return;
+
+    setSaving(true);
+    setErr("");
+    try {
+      await deleteDoc(doc(db, "customers", id));
+      navigate("/customers");
+    } catch (e) {
+      console.error(e);
+      setErr(e?.message?.includes("permission") ? "Permission denied." : "Failed to delete customer.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="inventory-container">
-      <div className="flex items-center justify-between mb-3">
-        <button
-          onClick={() => navigate("/customers")}
-          className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 text-sm font-semibold"
-        >
+      <div className="search-row" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button className="search-box" style={{ width: 120 }} onClick={() => navigate(-1)}>
           ← Back
         </button>
 
-        <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">
-          {displayName}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>{isNew ? "Create a new customer" : "Customer details"}</div>
         </div>
 
-        <button
-          onClick={save}
-          disabled={saving}
-          className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-60"
-        >
+        <button className="save-btn" onClick={onSave} disabled={saving || loading}>
           {saving ? "Saving..." : "Save"}
         </button>
-      </div>
 
-      {/* Edit panel */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm p-4 mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <div className="text-xs font-bold text-slate-600 mb-1">Type</div>
-            <select
-              value={draft.type}
-              onChange={(e) => setDraft((p) => ({ ...p, type: e.target.value }))}
-              className="w-full h-11 px-3 rounded-lg border"
-            >
-              <option value="Retail">Retail</option>
-              <option value="Wholesale">Wholesale</option>
-            </select>
-          </div>
-
-          <div>
-            <div className="text-xs font-bold text-slate-600 mb-1">Phone</div>
-            <input
-              value={draft.phone}
-              onChange={(e) => setDraft((p) => ({ ...p, phone: e.target.value }))}
-              className="w-full h-11 px-3 rounded-lg border"
-            />
-          </div>
-
-          <div>
-            <div className="text-xs font-bold text-slate-600 mb-1">First Name</div>
-            <input
-              value={draft.firstName}
-              onChange={(e) => setDraft((p) => ({ ...p, firstName: e.target.value }))}
-              className="w-full h-11 px-3 rounded-lg border"
-            />
-          </div>
-
-          <div>
-            <div className="text-xs font-bold text-slate-600 mb-1">Last Name</div>
-            <input
-              value={draft.lastName}
-              onChange={(e) => setDraft((p) => ({ ...p, lastName: e.target.value }))}
-              className="w-full h-11 px-3 rounded-lg border"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <div className="text-xs font-bold text-slate-600 mb-1">Company</div>
-            <input
-              value={draft.companyName}
-              onChange={(e) => setDraft((p) => ({ ...p, companyName: e.target.value }))}
-              className="w-full h-11 px-3 rounded-lg border"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <div className="text-xs font-bold text-slate-600 mb-1">Email</div>
-            <input
-              value={draft.email}
-              onChange={(e) => setDraft((p) => ({ ...p, email: e.target.value }))}
-              className="w-full h-11 px-3 rounded-lg border"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <div className="text-xs font-bold text-slate-600 mb-1">Notes</div>
-            <input
-              value={draft.notes}
-              onChange={(e) => setDraft((p) => ({ ...p, notes: e.target.value }))}
-              className="w-full h-11 px-3 rounded-lg border"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Purchase history */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b">
-          <div className="text-lg font-bold">Purchase History</div>
-          <div className="text-sm text-slate-600">
-            Orders linked to this customer.
-          </div>
-        </div>
-
-        <div className="grid grid-cols-12 bg-slate-100 dark:bg-slate-800 text-xs font-bold px-4 py-2">
-          <div className="col-span-3">Order #</div>
-          <div className="col-span-3">Date</div>
-          <div className="col-span-3">Status</div>
-          <div className="col-span-3 text-right">Total</div>
-        </div>
-
-        {orders.length === 0 ? (
-          <div className="px-4 py-8 text-sm text-slate-500">No orders yet.</div>
-        ) : (
-          orders.map((o) => {
-            const dt =
-              o.createdAt?.toDate?.()
-                ? o.createdAt.toDate()
-                : null;
-
-            return (
-              <div
-                key={o.id}
-                className="grid grid-cols-12 px-4 py-3 border-t text-sm items-center"
-              >
-                <div className="col-span-3 font-semibold">{o.orderNumber || "—"}</div>
-                <div className="col-span-3 text-slate-600">
-                  {dt ? dt.toLocaleString() : "—"}
-                </div>
-                <div className="col-span-3">{o.status || "—"}</div>
-                <div className="col-span-3 text-right font-bold">
-                  ${Number(o.total || 0).toFixed(2)}
-                </div>
-              </div>
-            );
-          })
+        {!isNew && (
+          <button className="search-box" style={{ width: 110 }} onClick={onDelete} disabled={saving || loading}>
+            Delete
+          </button>
         )}
       </div>
+
+      {err && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 10,
+            borderRadius: 12,
+            border: "1px solid rgba(239,68,68,0.35)",
+            background: "rgba(239,68,68,0.08)",
+            color: "#991b1b",
+            fontSize: 13,
+          }}
+        >
+          {err}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="empty-state" style={{ marginTop: 16 }}>
+          Loading...
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm p-4 mt-4 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <input className="search-box" placeholder="Company Name" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+            <input className="search-box" placeholder="Type (Retail/Commercial)" value={type} onChange={(e) => setType(e.target.value)} />
+            <input className="search-box" placeholder="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+            <input className="search-box" placeholder="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+            <input className="search-box" placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <input className="search-box" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+
+          <textarea
+            className="search-box"
+            style={{ minHeight: 110, width: "100%" }}
+            placeholder="Notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+
+          {!isNew && (
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              Customer ID: <span style={{ fontFamily: "monospace" }}>{id}</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

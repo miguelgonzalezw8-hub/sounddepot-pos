@@ -1,5 +1,5 @@
 // client/src/pages/BackorderCenter.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { db } from "../firebase";
 import {
   collection,
@@ -9,7 +9,10 @@ import {
   updateDoc,
   doc,
   getDoc,
+  where,
+  serverTimestamp,
 } from "firebase/firestore";
+import { useSession } from "../session/SessionProvider";
 
 const STATUS_ORDER = ["open", "ordered", "received", "notified", "closed"];
 
@@ -34,16 +37,36 @@ function statusPillClass(status) {
 }
 
 export default function BackorderCenter() {
+  const { terminal, booting, isUnlocked, devMode } = useSession();
+  const tenantId = terminal?.tenantId;
+
   const [rows, setRows] = useState([]);
   const [filter, setFilter] = useState("open"); // open | ordered | received | notified | closed | all
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    const qy = query(collection(db, "backorders"), orderBy("createdAt", "desc"));
-    return onSnapshot(qy, (snap) => {
-      setRows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-  }, []);
+    // ✅ Gate listeners until bootstrap is complete and tenant is known
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    // ✅ MUST scope by tenantId for your rules
+    const qy = query(
+      collection(db, "backorders"),
+      where("tenantId", "==", tenantId),
+      orderBy("createdAt", "desc")
+    );
+
+    return onSnapshot(
+      qy,
+      (snap) => {
+        setRows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      (err) => {
+        console.error("[SNAPSHOT DENIED] BackorderCenter backorders", err);
+      }
+    );
+  }, [booting, isUnlocked, devMode, tenantId]);
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -61,33 +84,28 @@ export default function BackorderCenter() {
       });
   }, [rows, filter, search]);
 
-  const setStatus = async (row, status) => {
+  const setStatus = useCallback(async (row, status) => {
     const next = String(status).toLowerCase();
 
-    // ✅ update the backorder itself
+    // ✅ update the backorder itself (keep tenant fields untouched)
     await updateDoc(doc(db, "backorders", row.id), {
       status: next,
-      updatedAt: new Date(),
+      updatedAt: serverTimestamp(),
     });
+  }, []);
 
-    // OPTIONAL: keep order status in sync (PARTIAL/FULFILLED)
-    // If you have updateOrderStatus(orderId) in orderService, you can import and call it.
-  };
-
-  const ensureOrderNumber = async (row) => {
-    // If your backorder doc already has orderNumber, we use it.
-    // If not, we try to read it from orders/{orderId}.
+  const ensureOrderNumber = useCallback(async (row) => {
     if (row.orderNumber) return row.orderNumber;
     if (!row.orderId) return "";
 
     try {
       const snap = await getDoc(doc(db, "orders", row.orderId));
-      const num = snap.exists() ? snap.data()?.orderNumber || "" : "";
-      return num;
-    } catch {
+      return snap.exists() ? snap.data()?.orderNumber || "" : "";
+    } catch (err) {
+      console.error("[ensureOrderNumber] failed", err);
       return "";
     }
-  };
+  }, []);
 
   return (
     <div className="inventory-container">
@@ -136,9 +154,7 @@ export default function BackorderCenter() {
         </div>
 
         {filtered.length === 0 ? (
-          <div className="px-4 py-8 text-sm text-slate-500">
-            No backorders found.
-          </div>
+          <div className="px-4 py-8 text-sm text-slate-500">No backorders found.</div>
         ) : (
           filtered.map((r) => (
             <BackorderRow
@@ -200,7 +216,6 @@ function BackorderRow({ row, setStatus, ensureOrderNumber }) {
       </div>
 
       <div className="col-span-3 flex flex-wrap gap-2 justify-end">
-        {/* ✅ Each button sets a DIFFERENT status */}
         <StatusButton
           label="Ordered"
           active={status === "ordered"}
