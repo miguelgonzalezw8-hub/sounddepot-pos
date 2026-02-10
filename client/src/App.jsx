@@ -2,16 +2,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { Routes, Route, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { db } from "./firebase";
-
-import {
-  collection,
-  query,
-  where,
-  orderBy,
-  limit,
-  onSnapshot,
-  Timestamp,
-} from "firebase/firestore";
+import ManagerBundles from "./pages/ManagerBundles";
+import ManagerBundleEditor from "./pages/ManagerBundleEditor";
+import ManagerCoupons from "./pages/ManagerCoupons";
+import ManagerLabor from "./pages/ManagerLabor";
+import { collection, query, where, orderBy, limit, onSnapshot, Timestamp,} from "firebase/firestore";
 
 /* ================= SHOPMONKEY-STYLE TERMINAL GATE ================= */
 import { SessionProvider, useSession } from "./session/SessionProvider";
@@ -609,9 +604,8 @@ function AppInner() {
             <Route path="/inventory/product/:productId" element={<InventoryProductDetail />} />
             <Route path="/inventory/unit/:unitId" element={<InventoryUnitDetail />} />
             <Route path="/inventory/check-in" element={<ProductCheckIn />} />
-
+            <Route path="/manager/coupons" element={<RequireManagerPin> <ManagerCoupons /> </RequireManagerPin>}/>
             <Route path="/held-receipts" element={<HeldReceipts />} />
-
             <Route path="/reports" element={<ReportsMenu />} />
             <Route path="/reports/sales-summary" element={<ReportSalesSummary />} />
             <Route path="/reports/daily-closeout" element={<ReportDailyCloseout />} />
@@ -619,6 +613,25 @@ function AppInner() {
             <Route path="/reports/cogs" element={<ReportCOGSSummary />} />
             <Route path="/reports/backorders" element={<ReportBackorders />} />
             <Route path="/reports/inventory-aging" element={<ReportInventoryAging />} />
+            <Route path="/manager/bundles" element={<ManagerBundles />} />
+            <Route path="/manager/labor" element={<RequireManagerPin> <ManagerLabor /> </RequireManagerPin>}/>
+            <Route
+              path="/manager/bundles/new"
+              element={
+                <RequireManagerPin>
+                  <ManagerBundleEditor />
+                </RequireManagerPin>
+              }
+            />
+
+            <Route
+              path="/manager/bundles/:bundleId"
+              element={
+                <RequireManagerPin>
+                  <ManagerBundleEditor />
+                </RequireManagerPin>
+              }
+            />
 
             <Route path="/manager" element={<ManagerMenu />} />
             <Route path="/manager/security" element={<ManagerSecurity />} />

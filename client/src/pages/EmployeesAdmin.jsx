@@ -20,12 +20,16 @@ export default function EmployeesAdmin() {
   const tenantId = terminal?.tenantId || "";
   const shopId = terminal?.shopId || "";
 
+  // ✅ OWNER TERMINAL BYPASS
+  const isOwnerTerminal = terminal?.mode === "owner";
+
   const isManager = useMemo(() => {
     const r = (posAccount?.role || "").toLowerCase();
     return r === "owner" || r === "manager";
   }, [posAccount?.role]);
 
-  const canEdit = devMode || isManager;
+  // ✅ can edit if dev OR owner terminal OR unlocked manager pin user
+  const canEdit = devMode || isOwnerTerminal || isManager;
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -100,7 +104,11 @@ export default function EmployeesAdmin() {
       setRole("sales");
       await refresh();
     } catch (e) {
-      console.error(e);
+      console.error("[EmployeesAdmin]", {
+  code: e?.code,
+  message: e?.message,
+  details: e,
+});
       alert(e?.message || String(e));
     } finally {
       setSaving(false);
@@ -343,32 +351,16 @@ export default function EmployeesAdmin() {
                   <td>{emp.active ? "Yes" : "No"}</td>
                   <td>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button
-                        className="search-box"
-                        style={{ width: 120 }}
-                        onClick={() => onChangePin(emp)}
-                      >
+                      <button className="search-box" style={{ width: 120 }} onClick={() => onChangePin(emp)}>
                         Change PIN
                       </button>
-                      <button
-                        className="search-box"
-                        style={{ width: 120 }}
-                        onClick={() => onChangeRole(emp)}
-                      >
+                      <button className="search-box" style={{ width: 120 }} onClick={() => onChangeRole(emp)}>
                         Change Role
                       </button>
-                      <button
-                        className="search-box"
-                        style={{ width: 120 }}
-                        onClick={() => onToggleActive(emp)}
-                      >
+                      <button className="search-box" style={{ width: 120 }} onClick={() => onToggleActive(emp)}>
                         {emp.active ? "Disable" : "Enable"}
                       </button>
-                      <button
-                        className="search-box"
-                        style={{ width: 120 }}
-                        onClick={() => onDelete(emp)}
-                      >
+                      <button className="search-box" style={{ width: 120 }} onClick={() => onDelete(emp)}>
                         Delete
                       </button>
                     </div>

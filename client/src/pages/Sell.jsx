@@ -1,5 +1,5 @@
 // client/src/pages/Sell.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import VehicleFitment from "../components/VehicleFitment";
 import CheckoutModal from "../components/CheckoutModal";
@@ -7,6 +7,7 @@ import { db } from "../firebase";
 import { processOrderItem } from "../services/orderService";
 import { getNextCounter, formatOrderNumber } from "../utils/counters";
 import { useSession } from "../session/SessionProvider";
+import { makeVehicleKey } from "../utils/vehicleKey";
 
 import {
   collection,
@@ -17,13 +18,20 @@ import {
   updateDoc,
   doc,
   serverTimestamp,
+  getDoc,
 } from "firebase/firestore";
+
+function nnum(v, fallback = 0) {
+  const x = Number(v);
+  return Number.isFinite(x) ? x : fallback;
+}
 
 export default function Sell() {
   const navigate = useNavigate();
 
   const { terminal, booting, isUnlocked, devMode } = useSession();
   const tenantId = terminal?.tenantId;
+  const shopId = terminal?.shopId;
 
   /* ================= STATE ================= */
   const [selectedVehicle, setSelectedVehicle] = useState(null);
@@ -42,6 +50,14 @@ export default function Sell() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
 
   const [heldCount, setHeldCount] = useState(0);
+
+  // ✅ Bundles that match selected vehicle
+  const [bundles, setBundles] = useState([]);
+
+  // ✅ Labor settings + catalog
+  const [laborMode, setLaborMode] = useState("catalog"); // "catalog" | "sku"
+  const [laborSkuProductId, setLaborSkuProductId] = useState("");
+  const [laborCatalog, setLaborCatalog] = useState([]);
 
   /* ================= ADD CUSTOMER (RESTORED) ================= */
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
@@ -63,7 +79,6 @@ export default function Sell() {
 
     const payload = {
       tenantId, // ✅ REQUIRED for rules
-
       type: newCust.type || "Retail",
       firstName: (newCust.firstName || "").trim(),
       lastName: (newCust.lastName || "").trim(),
@@ -71,7 +86,6 @@ export default function Sell() {
       phone: (newCust.phone || "").trim(),
       email: (newCust.email || "").trim(),
       notes: (newCust.notes || "").trim(),
-
       active: true,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -101,6 +115,489 @@ export default function Sell() {
       email: "",
       notes: "",
     });
+  };
+
+  /* ================= VEHICLE KEY ================= */
+  const selectedVehicleKey = useMemo(() => {
+    if (!selectedVehicle) return "";
+    return makeVehicleKey({
+      year: selectedVehicle.year,
+      make: selectedVehicle.make,
+      model: selectedVehicle.model,
+      trim: "",
+    });
+  }, [selectedVehicle]);
+
+  /* ================= LOAD SHOP LABOR SETTINGS ================= */
+  useEffect(() => {
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId || !shopId) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "shops", shopId));
+        if (cancelled) return;
+
+        const d = snap.exists() ? snap.data() : null;
+        const mode = String(d?.laborMode || "catalog");
+        setLaborMode(mode === "sku" ? "sku" : "catalog");
+        setLaborSkuProductId(String(d?.laborSkuProductId || ""));
+      } catch (err) {
+        console.error("[Sell labor settings] error:", err);
+        setLaborMode("catalog");
+        setLaborSkuProductId("");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [booting, isUnlocked, devMode, tenantId, shopId]);
+
+  /* ================= LOAD LABOR CATALOG ================= */
+  useEffect(() => {
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId || !shopId) return;
+
+    const qy = query(
+      collection(db, "shops", shopId, "laborCatalog"),
+      where("tenantId", "==", tenantId),
+      where("active", "==", true)
+    );
+
+    return onSnapshot(
+      qy,
+      (snap) => setLaborCatalog(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => {
+        console.error("[Sell laborCatalog] permission/index error:", err);
+        setLaborCatalog([]);
+      }
+    );
+  }, [booting, isUnlocked, devMode, tenantId, shopId]);
+
+  /* ================= LOAD DATA ================= */
+  useEffect(() => {
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    const qy = query(
+      collection(db, "products"),
+      where("tenantId", "==", tenantId),
+      where("active", "==", true)
+    );
+
+    return onSnapshot(qy, (snap) =>
+      setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
+  }, [booting, isUnlocked, devMode, tenantId]);
+
+  useEffect(() => {
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    const qy = query(collection(db, "customers"), where("tenantId", "==", tenantId));
+
+    return onSnapshot(qy, (snap) =>
+      setCustomers(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
+  }, [booting, isUnlocked, devMode, tenantId]);
+
+  useEffect(() => {
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    const qy = query(collection(db, "installers"), where("tenantId", "==", tenantId));
+
+    return onSnapshot(qy, (snap) =>
+      setInstallers(
+        snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((i) => i.active)
+      )
+    );
+  }, [booting, isUnlocked, devMode, tenantId]);
+
+  /* ================= LOAD BUNDLES FOR SELECTED VEHICLE ================= */
+  useEffect(() => {
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId || !shopId) return;
+
+    if (!selectedVehicleKey) {
+      setBundles([]);
+      return;
+    }
+
+    const qy = query(
+      collection(db, "shops", shopId, "bundles"),
+      where("tenantId", "==", tenantId),
+      where("active", "==", true),
+      where("vehicleKeys", "array-contains", selectedVehicleKey)
+    );
+
+    return onSnapshot(
+      qy,
+      (snap) => setBundles(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => {
+        console.error("[Sell bundles] permission/index error:", err);
+        setBundles([]);
+      }
+    );
+  }, [booting, isUnlocked, devMode, tenantId, shopId, selectedVehicleKey]);
+
+  /* ================= HELD COUNT ================= */
+  useEffect(() => {
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId) return;
+
+    const qy = query(collection(db, "heldReceipts"), where("tenantId", "==", tenantId));
+
+    return onSnapshot(qy, (snap) => setHeldCount(snap.size));
+  }, [booting, isUnlocked, devMode, tenantId]);
+
+  /* ================= RESUME HELD ================= */
+  useEffect(() => {
+    const resume = sessionStorage.getItem("resumeReceipt");
+    if (!resume) return;
+
+    const data = JSON.parse(resume);
+
+    const restoredCart = (data.cartItems || []).map((i) => ({
+      ...i,
+      qty: Number(i.qty ?? 1),
+      price: Number(i.price || 0),
+      discountTotal: Number(i.discountTotal || 0),
+      serial:
+        typeof i.serial === "string"
+          ? i.serial
+          : i.serial
+          ? String(i.serial)
+          : "",
+      requiresSerial: !!i.requiresSerial,
+
+      // bundle flags
+      isBundleParent: !!i.isBundleParent,
+      isBundleChild: !!i.isBundleChild,
+      parentCartId: i.parentCartId || null,
+      bundleId: i.bundleId || null,
+
+      // labor flags
+      isLabor: !!i.isLabor,
+      priceEditable: !!i.priceEditable,
+      laborMeta: i.laborMeta || null,
+    }));
+
+    setCart(restoredCart);
+    setSelectedVehicle(data.vehicle || null);
+    setInstallAt(data.installAt || null);
+
+    sessionStorage.setItem("resumeCustomerId", data.customer?.id || "");
+    sessionStorage.setItem("resumeInstallerId", data.installer?.id || "");
+
+    sessionStorage.removeItem("resumeReceipt");
+  }, []);
+
+  useEffect(() => {
+    const id = sessionStorage.getItem("resumeCustomerId");
+    if (!id || !customers.length) return;
+    const found = customers.find((c) => c.id === id);
+    if (found) setSelectedCustomer(found);
+    sessionStorage.removeItem("resumeCustomerId");
+  }, [customers]);
+
+  useEffect(() => {
+    const id = sessionStorage.getItem("resumeInstallerId");
+    if (!id || !installers.length) return;
+    const found = installers.find((i) => i.id === id);
+    if (found) setInstaller(found);
+    sessionStorage.removeItem("resumeInstallerId");
+  }, [installers]);
+
+  /* ================= LABOR HELPERS ================= */
+  const laborSkuProduct = useMemo(() => {
+    if (!laborSkuProductId) return null;
+    return products.find((p) => p.id === laborSkuProductId) || null;
+  }, [products, laborSkuProductId]);
+
+  const computeLaborDefaultPrice = (row) => {
+    if (!row) return 0;
+    const pricingModel = String(row.pricingModel || "flat");
+    if (pricingModel === "hourly") {
+      const rate = nnum(row.hourlyRate, 0);
+      const hours = nnum(row.defaultHours, 0);
+      return rate * hours;
+    }
+    return nnum(row.flatAmount, 0);
+  };
+
+  /* ================= CART ================= */
+  const addToCart = (product, source = "search") => {
+    // ✅ Bundle “product” comes from VehicleFitment as { isBundle:true, _bundle:{...} }
+    if (product?.isBundle && product?._bundle) {
+      const b = product._bundle;
+      const parentCartId = crypto.randomUUID();
+
+      const parentLine = {
+        cartId: parentCartId,
+        productId: `bundle:${b.id}`,
+        name: b.name,
+        price: Number(b.bundlePrice || 0),
+        qty: 1,
+
+        discountTotal: 0,
+        serial: "",
+        requiresSerial: false,
+
+        source,
+        isBundleParent: true,
+        isBundleChild: false,
+        parentCartId: null,
+        bundleId: b.id,
+
+        isLabor: false,
+        priceEditable: false,
+        laborMeta: null,
+      };
+
+      const childLines = (b.items || []).map((it) => {
+        const prod = products.find((p) => p.id === it.productId);
+        const requiresSerial =
+          !!prod?.requiresSerial ||
+          !!prod?.serialized ||
+          !!prod?.trackSerials ||
+          !!prod?.trackSerial;
+
+        return {
+          cartId: crypto.randomUUID(),
+          productId: it.productId,
+          name: prod?.name || `Item ${it.productId}`,
+          price: 0,
+          qty: Number(it.qty || 1),
+
+          discountTotal: 0,
+          serial: "",
+          requiresSerial,
+
+          source: "bundle",
+          isBundleParent: false,
+          isBundleChild: true,
+          parentCartId: parentCartId,
+          bundleId: b.id,
+
+          isLabor: false,
+          priceEditable: false,
+          laborMeta: null,
+        };
+      });
+
+      setCart((prev) => [...prev, parentLine, ...childLines]);
+      return;
+    }
+
+    // ✅ Labor “product” (from search list injection below)
+    if (product?.isLabor && product?._labor) {
+      const row = product._labor;
+      const defaultPrice = computeLaborDefaultPrice(row);
+
+      const pricingModel = String(row.pricingModel || "flat");
+      const hourlyRate = nnum(row.hourlyRate, 0);
+      const defaultHours = nnum(row.defaultHours, 0);
+      const flatAmount = nnum(row.flatAmount, 0);
+
+      setCart((prev) => [
+        ...prev,
+        {
+          cartId: crypto.randomUUID(),
+          productId: `labor:${row.id}`,
+          name: row.name || "Labor",
+          price: Number(defaultPrice || 0),
+          qty: 1,
+
+          discountTotal: 0,
+          serial: "",
+          requiresSerial: false,
+
+          source: "labor",
+          isBundleParent: false,
+          isBundleChild: false,
+          parentCartId: null,
+          bundleId: null,
+
+          isLabor: true,
+          priceEditable: true,
+          laborMeta: {
+            laborId: row.id,
+            pricingModel: pricingModel === "hourly" ? "hourly" : "flat",
+            hourlyRate,
+            hours: pricingModel === "hourly" ? defaultHours : 0,
+            flatAmount,
+            taxable: !!row.taxable,
+            commissionable: row.commissionable !== false,
+          },
+        },
+      ]);
+
+      if (source === "search") setSearch("");
+      return;
+    }
+
+    // ✅ Labor SKU mode: add the chosen labor product but mark it as labor + editable
+    if (product?.isLaborSku && laborSkuProduct) {
+      setCart((prev) => [
+        ...prev,
+        {
+          cartId: crypto.randomUUID(),
+          productId: laborSkuProduct.id,
+          name: laborSkuProduct.name || "Labor",
+          price: Number(laborSkuProduct.price || 0),
+          qty: 1,
+
+          discountTotal: 0,
+          serial: "",
+          requiresSerial: false,
+
+          source: "labor",
+          isBundleParent: false,
+          isBundleChild: false,
+          parentCartId: null,
+          bundleId: null,
+
+          isLabor: true,
+          priceEditable: true,
+          laborMeta: {
+            laborId: null,
+            pricingModel: "sku",
+            hourlyRate: 0,
+            hours: 0,
+            flatAmount: 0,
+            taxable: false,
+            commissionable: true,
+          },
+        },
+      ]);
+
+      if (source === "search") setSearch("");
+      return;
+    }
+
+    // Normal product add
+    setCart((prev) => [
+      ...prev,
+      {
+        cartId: crypto.randomUUID(),
+        productId: product.id,
+        name: product.name,
+        price: Number(product.price || 0),
+        qty: 1,
+
+        discountTotal: 0,
+
+        serial: "",
+        requiresSerial:
+          !!product.requiresSerial ||
+          !!product.serialized ||
+          !!product.trackSerials ||
+          !!product.trackSerial,
+
+        source,
+        isBundleParent: false,
+        isBundleChild: false,
+        parentCartId: null,
+        bundleId: null,
+
+        isLabor: false,
+        priceEditable: false,
+        laborMeta: null,
+      },
+    ]);
+    if (source === "search") setSearch("");
+  };
+
+  const updateQty = (id, delta) => {
+    setCart((prev) =>
+      prev
+        .map((i) => (i.cartId === id ? { ...i, qty: Number(i.qty || 0) + delta } : i))
+        .filter((i) => Number(i.qty) > 0)
+    );
+  };
+
+  const updateSerial = (id, serial) => {
+    setCart((prev) => prev.map((i) => (i.cartId === id ? { ...i, serial } : i)));
+  };
+
+  const updatePrice = (id, price) => {
+    setCart((prev) =>
+      prev.map((i) =>
+        i.cartId === id ? { ...i, price: nnum(price, 0) } : i
+      )
+    );
+  };
+
+  const removeItem = (id) => {
+    setCart((prev) => {
+      const target = prev.find((x) => x.cartId === id);
+      if (!target) return prev;
+
+      if (target.isBundleParent) {
+        return prev.filter((x) => x.cartId !== id && x.parentCartId !== id);
+      }
+
+      return prev.filter((x) => x.cartId !== id);
+    });
+  };
+
+  /* ================= TOTALS ================= */
+  const subtotal = cart
+    .filter((i) => !i.isBundleChild)
+    .reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 0), 0);
+
+  const taxRate = selectedCustomer?.type === "Wholesale" ? 0 : 0.095;
+  const tax = subtotal * taxRate;
+  const total = subtotal + tax;
+
+  /* ================= HOLD ================= */
+  const holdReceipt = async (print = false) => {
+    if (!cart.length) return;
+
+    if (!tenantId) {
+      alert("No tenant selected. Please set up the terminal.");
+      return;
+    }
+
+    const payload = {
+      tenantId, // ✅ REQUIRED for rules
+      cartItems: cart,
+      customer: selectedCustomer ?? null,
+      vehicle: selectedVehicle ?? null,
+      installer: installer ?? null,
+      installAt: installAt ?? null,
+      subtotal,
+      tax,
+      total,
+      status: "held",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    const ref = await addDoc(collection(db, "heldReceipts"), payload);
+
+    if (print) {
+      localStorage.setItem("currentReceipt", JSON.stringify({ ...payload, id: ref.id }));
+      window.location.href = "/print-receipt";
+      return;
+    }
+
+    setCart([]);
+    setSelectedCustomer(null);
+    setSelectedVehicle(null);
+    setInstaller(null);
+    setInstallAt(null);
   };
 
   /* ================= ORDER FINALIZE ================= */
@@ -149,14 +646,12 @@ export default function Sell() {
       "";
     const customerPhone = selectedCustomer?.phone || "";
 
-    // ✅ clean order number (SD-000123)
     const seq = await getNextCounter("orders");
     const orderNumber = formatOrderNumber(seq);
 
     console.log("[SELL] creating order doc...");
     const orderRef = await addDoc(collection(db, "orders"), {
       tenantId, // ✅ REQUIRED for rules
-
       orderNumber,
       orderSeq: seq,
 
@@ -173,6 +668,8 @@ export default function Sell() {
       tax: totals.tax,
       total: totals.total,
 
+      cartItems: normalizedCart,
+
       status: "OPEN",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -180,8 +677,17 @@ export default function Sell() {
 
     console.log("[SELL] order created:", orderRef.id, orderNumber);
 
-    // Process each item through service (service creates backorder docs + marks sold)
-    for (const cartItem of normalizedCart) {
+    // ✅ Inventory lines:
+    // - exclude bundle parents
+    // - exclude labor lines (catalog + sku)
+    const inventoryLines = normalizedCart.filter(
+      (i) =>
+        !i.isBundleParent &&
+        !i.isLabor &&
+        !String(i.productId || "").startsWith("labor:")
+    );
+
+    for (const cartItem of inventoryLines) {
       const product = products.find((p) => p.id === cartItem.productId);
       if (!product) continue;
 
@@ -190,25 +696,22 @@ export default function Sell() {
         productId: product.id,
         qty: cartItem.qty,
         serial: cartItem.serial || "",
+        bundle: cartItem.isBundleChild ? cartItem.bundleId : null,
       });
 
       await processOrderItem({
         orderId: orderRef.id,
         product,
-
         quantity: Number(cartItem.qty || 0),
-
         unitPrice: Number(cartItem.price || 0),
         discountTotal: Number(cartItem.discountTotal || 0),
         taxable: true,
-
         serial: String(cartItem.serial || "").trim(),
       });
 
       console.log("[SELL] processOrderItem DONE", { productId: product.id });
     }
 
-    // Safe final update
     await updateDoc(doc(db, "orders", orderRef.id), {
       updatedAt: serverTimestamp(),
     });
@@ -217,195 +720,59 @@ export default function Sell() {
     return orderRef.id;
   };
 
-  /* ================= LOAD DATA ================= */
-  useEffect(() => {
-    if (booting) return;
-    if (!devMode && !isUnlocked) return;
-    if (!tenantId) return;
+  /* ================= SEARCH SUGGESTIONS (PRODUCTS + LABOR) ================= */
+  const searchSuggestions = useMemo(() => {
+    const s = String(search || "").trim().toLowerCase();
+    if (!s) return [];
 
-    const qy = query(
-      collection(db, "products"),
-      where("tenantId", "==", tenantId),
-      where("active", "==", true)
-    );
+    const out = [];
 
-    return onSnapshot(qy, (snap) =>
-      setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    );
-  }, [booting, isUnlocked, devMode, tenantId]);
-
-  useEffect(() => {
-    if (booting) return;
-    if (!devMode && !isUnlocked) return;
-    if (!tenantId) return;
-
-    const qy = query(collection(db, "customers"), where("tenantId", "==", tenantId));
-
-    return onSnapshot(qy, (snap) =>
-      setCustomers(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-    );
-  }, [booting, isUnlocked, devMode, tenantId]);
-
-  useEffect(() => {
-    if (booting) return;
-    if (!devMode && !isUnlocked) return;
-    if (!tenantId) return;
-
-    const qy = query(collection(db, "installers"), where("tenantId", "==", tenantId));
-
-    return onSnapshot(qy, (snap) =>
-      setInstallers(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((i) => i.active)
-      )
-    );
-  }, [booting, isUnlocked, devMode, tenantId]);
-
-  /* ================= HELD COUNT ================= */
-  useEffect(() => {
-    if (booting) return;
-    if (!devMode && !isUnlocked) return;
-    if (!tenantId) return;
-
-    const qy = query(collection(db, "heldReceipts"), where("tenantId", "==", tenantId));
-
-    return onSnapshot(qy, (snap) => setHeldCount(snap.size));
-  }, [booting, isUnlocked, devMode, tenantId]);
-
-  /* ================= RESUME HELD ================= */
-  useEffect(() => {
-    const resume = sessionStorage.getItem("resumeReceipt");
-    if (!resume) return;
-
-    const data = JSON.parse(resume);
-
-    const restoredCart = (data.cartItems || []).map((i) => ({
-      ...i,
-      qty: Number(i.qty ?? 1),
-      price: Number(i.price || 0),
-      discountTotal: Number(i.discountTotal || 0),
-      serial:
-        typeof i.serial === "string"
-          ? i.serial
-          : i.serial
-          ? String(i.serial)
-          : "",
-      requiresSerial: !!i.requiresSerial,
-    }));
-
-    setCart(restoredCart);
-    setSelectedVehicle(data.vehicle || null);
-    setInstallAt(data.installAt || null);
-
-    sessionStorage.setItem("resumeCustomerId", data.customer?.id || "");
-    sessionStorage.setItem("resumeInstallerId", data.installer?.id || "");
-
-    sessionStorage.removeItem("resumeReceipt");
-  }, []);
-
-  useEffect(() => {
-    const id = sessionStorage.getItem("resumeCustomerId");
-    if (!id || !customers.length) return;
-    const found = customers.find((c) => c.id === id);
-    if (found) setSelectedCustomer(found);
-    sessionStorage.removeItem("resumeCustomerId");
-  }, [customers]);
-
-  useEffect(() => {
-    const id = sessionStorage.getItem("resumeInstallerId");
-    if (!id || !installers.length) return;
-    const found = installers.find((i) => i.id === id);
-    if (found) setInstaller(found);
-    sessionStorage.removeItem("resumeInstallerId");
-  }, [installers]);
-
-  /* ================= CART ================= */
-  const addToCart = (product, source = "search") => {
-    setCart((prev) => [
-      ...prev,
-      {
-        cartId: crypto.randomUUID(),
-        productId: product.id,
-        name: product.name,
-        price: Number(product.price || 0),
-        qty: 1,
-
-        discountTotal: 0,
-
-        serial: "",
-        requiresSerial:
-          !!product.requiresSerial ||
-          !!product.serialized ||
-          !!product.trackSerials ||
-          !!product.trackSerial,
-
-        source,
-      },
-    ]);
-    if (source === "search") setSearch("");
-  };
-
-  const updateQty = (id, delta) => {
-    setCart((prev) =>
-      prev
-        .map((i) => (i.cartId === id ? { ...i, qty: Number(i.qty || 0) + delta } : i))
-        .filter((i) => Number(i.qty) > 0)
-    );
-  };
-
-  const updateSerial = (id, serial) => {
-    setCart((prev) => prev.map((i) => (i.cartId === id ? { ...i, serial } : i)));
-  };
-
-  const removeItem = (id) => setCart((prev) => prev.filter((i) => i.cartId !== id));
-
-  /* ================= TOTALS ================= */
-  const subtotal = cart.reduce(
-    (s, i) => s + Number(i.price || 0) * Number(i.qty || 0),
-    0
-  );
-  const taxRate = selectedCustomer?.type === "Wholesale" ? 0 : 0.095;
-  const tax = subtotal * taxRate;
-  const total = subtotal + tax;
-
-  /* ================= HOLD ================= */
-  const holdReceipt = async (print = false) => {
-    if (!cart.length) return;
-
-    if (!tenantId) {
-      alert("No tenant selected. Please set up the terminal.");
-      return;
+    // Labor SKU quick option
+    if (laborMode === "sku" && laborSkuProduct && "labor".includes(s)) {
+      out.push({
+        id: "__labor_sku__",
+        name: `${laborSkuProduct.name || "Labor"} (Labor)`,
+        price: Number(laborSkuProduct.price || 0),
+        isLaborSku: true,
+      });
     }
 
-    const payload = {
-      tenantId, // ✅ REQUIRED for rules
+    // Labor catalog options
+    if (laborMode === "catalog") {
+      const matchesLabor =
+        s === "l" ||
+        s === "la" ||
+        s === "lab" ||
+        s === "labo" ||
+        s === "labor" ||
+        s.includes("labor");
 
-      cartItems: cart,
-      customer: selectedCustomer ?? null,
-      vehicle: selectedVehicle ?? null,
-      installer: installer ?? null,
-      installAt: installAt ?? null,
-      subtotal,
-      tax,
-      total,
-      status: "held",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
+      const laborRows =
+        matchesLabor
+          ? laborCatalog
+          : laborCatalog.filter((r) =>
+              String(r.name || "").toLowerCase().includes(s)
+            );
 
-    const ref = await addDoc(collection(db, "heldReceipts"), payload);
-
-    if (print) {
-      localStorage.setItem("currentReceipt", JSON.stringify({ ...payload, id: ref.id }));
-      window.location.href = "/print-receipt";
-      return;
+      laborRows.slice(0, 8).forEach((r) => {
+        out.push({
+          id: `labor:${r.id}`,
+          name: `${r.name} (Labor)`,
+          price: computeLaborDefaultPrice(r),
+          isLabor: true,
+          _labor: r,
+        });
+      });
     }
 
-    setCart([]);
-    setSelectedCustomer(null);
-    setSelectedVehicle(null);
-    setInstaller(null);
-    setInstallAt(null);
-  };
+    // Normal products
+    products
+      .filter((p) => `${p.name} ${p.sku || ""}`.toLowerCase().includes(s))
+      .slice(0, 25)
+      .forEach((p) => out.push(p));
+
+    return out;
+  }, [search, products, laborMode, laborSkuProduct, laborCatalog]);
 
   /* ================= UI ================= */
   return (
@@ -413,9 +780,10 @@ export default function Sell() {
       {/* LEFT */}
       <VehicleFitment
         products={products}
+        bundles={bundles}
         selectedVehicle={selectedVehicle}
         onVehicleSelected={setSelectedVehicle}
-        onAddProduct={(p) => addToCart(p, "fitment")}
+        onAddProduct={(p) => addToCart(p, p.isBundle ? "bundle" : "fitment")}
       />
 
       {/* RIGHT */}
@@ -531,20 +899,24 @@ export default function Sell() {
 
         {search && (
           <div className="border rounded-lg mt-1 max-h-40 overflow-y-auto">
-            {products
-              .filter((p) =>
-                `${p.name} ${p.sku || ""}`.toLowerCase().includes(search.toLowerCase())
-              )
-              .map((p) => (
+            {searchSuggestions.map((p) => {
+              const isLaborRow = !!p.isLabor || !!p.isLaborSku;
+              const key = p.id || p.productId || p.name;
+
+              return (
                 <div
-                  key={p.id}
+                  key={key}
                   onMouseDown={() => addToCart(p)}
                   className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
                 >
                   <strong>{p.name}</strong>
-                  <div className="text-xs text-gray-500">${Number(p.price || 0).toFixed(2)}</div>
+                  <div className="text-xs text-gray-500">
+                    ${Number(p.price || 0).toFixed(2)}
+                    {isLaborRow ? " • editable" : ""}
+                  </div>
                 </div>
-              ))}
+              );
+            })}
           </div>
         )}
 
@@ -553,16 +925,33 @@ export default function Sell() {
           {cart.map((i) => (
             <div key={i.cartId} className="border-b py-2 flex justify-between text-sm">
               <div className="flex flex-col">
-                <span>{i.name}</span>
+                <span>
+                  {i.name}
+                  {i.isBundleParent ? " (Bundle)" : ""}
+                  {i.isLabor ? " (Labor)" : ""}
+                </span>
 
-                <input
-                  value={i.serial || ""}
-                  onChange={(e) => updateSerial(i.cartId, e.target.value)}
-                  placeholder={
-                    i.requiresSerial ? "Scan serial # (required)" : "Scan serial # (optional)"
-                  }
-                  className="mt-1 h-9 px-2 rounded border text-xs w-64"
-                />
+                {/* ✅ Labor price override (Option 2) */}
+                {i.isLabor && i.priceEditable && (
+                  <input
+                    value={String(i.price ?? "")}
+                    onChange={(e) => updatePrice(i.cartId, e.target.value)}
+                    placeholder="Labor price"
+                    className="mt-1 h-9 px-2 rounded border text-xs w-64"
+                  />
+                )}
+
+                {/* Serial input (unchanged behavior) */}
+                {!i.isLabor && (
+                  <input
+                    value={i.serial || ""}
+                    onChange={(e) => updateSerial(i.cartId, e.target.value)}
+                    placeholder={
+                      i.requiresSerial ? "Scan serial # (required)" : "Scan serial # (optional)"
+                    }
+                    className="mt-1 h-9 px-2 rounded border text-xs w-64"
+                  />
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -728,6 +1117,9 @@ export default function Sell() {
         onClose={() => setCheckoutOpen(false)}
         subtotal={subtotal}
         taxRate={taxRate}
+        cartItems={cart}
+        products={products}
+        selectedCustomerId={selectedCustomer?.id || null}
         onCompletePayment={async ({ payment, totals }) => {
           console.log("[SELL] onCompletePayment FIRED", { totals, cartLen: cart?.length });
 
@@ -762,7 +1154,8 @@ export default function Sell() {
             alert("Checkout failed. Inventory was NOT finalized. See console for details.");
           }
         }}
-      />
+      >
+      </CheckoutModal>
     </div>
   );
 }

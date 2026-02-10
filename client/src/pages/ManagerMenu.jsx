@@ -5,20 +5,26 @@ import { useSession } from "../session/SessionProvider";
 
 export default function ManagerMenu() {
   const navigate = useNavigate();
-  const { devMode, posAccount } = useSession();
+  const { devMode, posAccount, terminal } = useSession();
 
-  const role = useMemo(
-    () => String(posAccount?.role || "").toLowerCase(),
-    [posAccount?.role]
-  );
+  // ✅ OWNER TERMINAL bypass (no PIN required)
+  const isOwnerTerminal = useMemo(() => terminal?.mode === "owner", [terminal?.mode]);
+
+  const role = useMemo(() => {
+    if (devMode) return "devMode";
+    if (isOwnerTerminal) return "owner";
+    return String(posAccount?.role || "").toLowerCase();
+  }, [devMode, isOwnerTerminal, posAccount?.role]);
 
   const isManager = useMemo(() => {
     if (devMode) return true;
+    if (isOwnerTerminal) return true; // ✅ owner terminal should have full manager access
     return role === "owner" || role === "manager";
-  }, [devMode, role]);
+  }, [devMode, isOwnerTerminal, role]);
 
   // Manager PIN page should be reachable even if not manager yet (bootstrap).
-  // Employees remains manager-only.
+  // Everything else is manager-only.
+  const canSeeManagerTools = isManager;
   const canSeeEmployees = isManager;
 
   return (
@@ -33,16 +39,15 @@ export default function ManagerMenu() {
         </button>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 900, fontSize: 18 }}>Manager</div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            Manager-only tools
-          </div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>Manager-only tools</div>
           <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
-            Role: {devMode ? "devMode" : role || "— (not unlocked)"}
+            Role: {role || "— (not unlocked)"}
+            {isOwnerTerminal ? " (OWNER TERMINAL)" : ""}
           </div>
         </div>
       </div>
 
-      {!isManager && !devMode && (
+      {!isManager && !devMode && !isOwnerTerminal && (
         <div
           style={{
             marginTop: 10,
@@ -55,7 +60,7 @@ export default function ManagerMenu() {
           }}
         >
           You’re not unlocked as a manager yet. Set your Manager PIN, then unlock
-          with a manager/owner POS account to access Employees.
+          with a manager/owner POS account to access manager tools.
         </div>
       )}
 
@@ -66,7 +71,7 @@ export default function ManagerMenu() {
           <span className="tile-sub">Set / change PIN</span>
         </div>
 
-        {/* Manager-only */}
+        {/* EMPLOYEES */}
         {canSeeEmployees ? (
           <div className="tile" onClick={() => navigate("/manager/employees")}>
             <span className="tile-title">👥 Employees</span>
@@ -83,9 +88,70 @@ export default function ManagerMenu() {
             style={{ opacity: 0.65 }}
           >
             <span className="tile-title">👥 Employees</span>
-            <span className="tile-sub">
-              Locked — requires manager/owner access
-            </span>
+            <span className="tile-sub">Locked — requires manager/owner access</span>
+          </div>
+        )}
+
+        {/* BUNDLES */}
+        {canSeeManagerTools ? (
+          <div className="tile" onClick={() => navigate("/manager/bundles")}>
+            <span className="tile-title">📦 Bundles</span>
+            <span className="tile-sub">Create vehicle bundles + bundle pricing</span>
+          </div>
+        ) : (
+          <div
+            className="tile"
+            onClick={() =>
+              alert(
+                "Bundles is manager-only. Unlock with a manager/owner POS account first."
+              )
+            }
+            style={{ opacity: 0.65 }}
+          >
+            <span className="tile-title">📦 Bundles</span>
+            <span className="tile-sub">Locked — requires manager/owner access</span>
+          </div>
+        )}
+
+        {/* COUPONS */}
+        {canSeeManagerTools ? (
+          <div className="tile" onClick={() => navigate("/manager/coupons")}>
+            <span className="tile-title">🏷️ Coupons</span>
+            <span className="tile-sub">Auto-generate codes + apply rules</span>
+          </div>
+        ) : (
+          <div
+            className="tile"
+            onClick={() =>
+              alert(
+                "Coupons is manager-only. Unlock with a manager/owner POS account first."
+              )
+            }
+            style={{ opacity: 0.65 }}
+          >
+            <span className="tile-title">🏷️ Coupons</span>
+            <span className="tile-sub">Locked — requires manager/owner access</span>
+          </div>
+        )}
+
+        {/* LABOR */}
+        {canSeeManagerTools ? (
+          <div className="tile" onClick={() => navigate("/manager/labor")}>
+            <span className="tile-title">🛠️ Labor</span>
+            <span className="tile-sub">Configure labor charging (Option 2)</span>
+          </div>
+        ) : (
+          <div
+            className="tile"
+            onClick={() =>
+              alert(
+                "Labor is manager-only. Unlock with a manager/owner POS account first."
+              )
+            }
+            style={{ opacity: 0.65 }}
+          >
+            <span className="tile-title">🛠️ Labor</span>
+            <span className="tile-sub">Locked — requires manager/owner access</span>
           </div>
         )}
       </div>
