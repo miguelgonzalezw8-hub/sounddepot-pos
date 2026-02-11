@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userProfilePath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function hasUserProfile() {
+      return signedIn() && exists(userProfilePath());
+    }
+
+    function userProfile() {
+      return get(userProfilePath()).data;
+    }
+
+    function myRole() {
+      return request.auth.token.role != null
+        ? request.auth.token.role
+        : (hasUserProfile() ? userProfile().role : null);
+    }
+
+    function isOwnerOrManager() {
+      return myRole() in ['owner', 'manager', 'dev', 'developer', 'tenant_owner', 'main_owner'];
+    }
+
+    function isOwnerLike() {
+      return myRole() in ['owner', 'dev', 'developer', 'tenant_owner', 'main_owner'];
+    }
+
+    function myTenantId() {
+      return hasUserProfile() ? userProfile().tenantId : null;
+    }
+
+    function myShopIds() {
+      return hasUserProfile() && userProfile().shopIds is list
+        ? userProfile().shopIds
+        : [];
+    }
+
+    function canUseShopId(shopId) {
+      return (hasUserProfile() && userProfile().shopId == shopId)
+        || (shopId in myShopIds());
+    }
+
+    function sessionPath() {
+      return /databases/$(database)/documents/sessions/$(request.auth.uid);
+    }
+
+    function hasSession() {
+      return signedIn() && exists(sessionPath());
+    }
+
+    function sessionData() {
+      return get(sessionPath()).data;
+    }
+
+    function sessionTenantId() {
+      return hasSession() ? sessionData().tenantId : null;
+    }
+
+    function sessionShopId() {
+      return hasSession() ? sessionData().shopId : null;
+    }
+
+    function tenantAndShopAllowed(tenantId, shopId) {
+      return (
+        hasUserProfile()
+        && tenantId == myTenantId()
+        && canUseShopId(shopId)
+      ) || (
+        hasSession()
+        && tenantId == sessionTenantId()
+        && shopId == sessionShopId()
+      );
+    }
+
+    match /sessions/{uid} {
+      allow read, create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    match /posAccounts/{id} {
+      allow read, list: if signedIn()
+        && resource.data.tenantId is string
+        && resource.data.shopId is string
+        && tenantAndShopAllowed(resource.data.tenantId, resource.data.shopId);
+
+      allow create: if signedIn()
+        && isOwnerOrManager()
+        && request.resource.data.tenantId is string
+        && request.resource.data.shopId is string
+        && tenantAndShopAllowed(request.resource.data.tenantId, request.resource.data.shopId);
+
+      allow update: if signedIn()
+        && isOwnerOrManager()
+        && request.resource.data.tenantId is string
+        && request.resource.data.shopId is string
+        && resource.data.tenantId == request.resource.data.tenantId
+        && resource.data.shopId == request.resource.data.shopId
+        && tenantAndShopAllowed(request.resource.data.tenantId, request.resource.data.shopId);
+
+      allow delete: if signedIn()
+        && isOwnerLike()
+        && resource.data.tenantId is string
+        && resource.data.shopId is string
+        && tenantAndShopAllowed(resource.data.tenantId, resource.data.shopId);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

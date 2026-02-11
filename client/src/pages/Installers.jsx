@@ -46,15 +46,7 @@ const DEFAULT_CERTIFICATIONS = [
 
 /* ================= COMPONENT ================= */
 
-export default function Installers({ user }) {
-  if (!user || (user.role !== "owner" && user.role !== "manager")) {
-    return (
-      <div className="p-6 text-red-600 font-semibold">
-        No access to installer settings.
-      </div>
-    );
-  }
-
+export default function Installers({ canManageInstallers }) {
   /* ================= STATE ================= */
 
   const [installers, setInstallers] = useState([]);
@@ -113,6 +105,14 @@ export default function Installers({ user }) {
   };
 
   /* ================= UI ================= */
+
+  if (!canManageInstallers) {
+    return (
+      <div className="p-6 text-red-600 font-semibold">
+        No access to installer settings.
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">

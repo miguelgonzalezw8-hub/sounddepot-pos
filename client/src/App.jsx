@@ -23,6 +23,120 @@ import ReceiptPrint from "./pages/ReceiptPrint";
 import Installers from "./pages/Installers";
 import Login from "./components/Login";
 
+const ROLE_PERMISSIONS = {
+  dev: {
+    dashboard: true,
+    sell: true,
+    inventory: true,
+    backOrders: true,
+    settings: true,
+    receiptEditor: true,
+    installers: true,
+    devMenu: true,
+  },
+  developer: {
+    dashboard: true,
+    sell: true,
+    inventory: true,
+    backOrders: true,
+    settings: true,
+    receiptEditor: true,
+    installers: true,
+    devMenu: true,
+    createManagerAccounts: true,
+  },
+  owner: {
+    dashboard: true,
+    sell: true,
+    inventory: true,
+    backOrders: true,
+    settings: true,
+    receiptEditor: true,
+    installers: true,
+    devMenu: false,
+    createManagerAccounts: true,
+  },
+  tenant: {
+    dashboard: true,
+    sell: true,
+    inventory: true,
+    backOrders: true,
+    settings: true,
+    receiptEditor: true,
+    installers: true,
+    devMenu: false,
+    createManagerAccounts: true,
+  },
+  tenant_owner: {
+    dashboard: true,
+    sell: true,
+    inventory: true,
+    backOrders: true,
+    settings: true,
+    receiptEditor: true,
+    installers: true,
+    devMenu: false,
+    createManagerAccounts: true,
+  },
+  main_owner: {
+    dashboard: true,
+    sell: true,
+    inventory: true,
+    backOrders: true,
+    settings: true,
+    receiptEditor: true,
+    installers: true,
+    devMenu: false,
+    createManagerAccounts: true,
+  },
+  manager: {
+    dashboard: true,
+    sell: true,
+    inventory: true,
+    backOrders: true,
+    settings: true,
+    receiptEditor: true,
+    installers: true,
+    devMenu: false,
+    createManagerAccounts: false,
+  },
+  employee: {
+    dashboard: true,
+    sell: true,
+    inventory: true,
+    backOrders: true,
+    settings: false,
+    receiptEditor: false,
+    installers: false,
+    devMenu: false,
+    createManagerAccounts: false,
+  },
+  installer: {
+    dashboard: true,
+    sell: true,
+    inventory: true,
+    backOrders: true,
+    settings: false,
+    receiptEditor: false,
+    installers: false,
+    devMenu: false,
+    createManagerAccounts: false,
+  },
+  user: {
+    dashboard: false,
+    sell: false,
+    inventory: false,
+    backOrders: false,
+    settings: false,
+    receiptEditor: false,
+    installers: false,
+    devMenu: false,
+    createManagerAccounts: false,
+  },
+};
+
+const getPermissionsForRole = (role) => ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.user;
+
 /* ================= DASHBOARD ================= */
 function Dashboard() {
   return (
@@ -34,10 +148,12 @@ function Dashboard() {
 
 /* ================= NAV ================= */
 const navItems = [
-  { label: "Dashboard", to: "/" },
-  { label: "Sell", to: "/sell" },
-  { label: "Inventory", to: "/inventory" },
-  { label: "Settings", to: "/settings" },
+  { label: "Dashboard", to: "/", permission: "dashboard" },
+  { label: "Sell", to: "/sell", permission: "sell" },
+  { label: "Inventory", to: "/inventory", permission: "inventory" },
+  { label: "Back Orders", to: "/held-receipts", permission: "backOrders" },
+  { label: "Settings", to: "/settings", permission: "settings" },
+  { label: "Dev Menu", to: "/settings/dev", permission: "devMenu" },
 ];
 
 export default function App() {
@@ -59,10 +175,13 @@ export default function App() {
       // ✅ pull custom claims (role)
       const token = await getIdTokenResult(currentUser);
 
+      const role = token.claims.role || "user";
+
       setUser({
         uid: currentUser.uid,
         email: currentUser.email,
-        role: token.claims.role || "user",
+        role,
+        permissions: getPermissionsForRole(role),
       });
 
       setAuthReady(true);
@@ -103,9 +222,13 @@ export default function App() {
     return <Login />;
   }
 
-  /* ================= ROLE CHECK ================= */
-  const isManager =
-    user.role === "owner" || user.role === "manager";
+  const canAccess = (permissionKey) => Boolean(user?.permissions?.[permissionKey]);
+
+  const unauthorizedPage = (
+    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-200">
+      You do not have permission to view this page.
+    </div>
+  );
 
   /* ================= APP ================= */
   return (
@@ -124,7 +247,7 @@ export default function App() {
           </div>
 
           <nav className="flex-1 px-2 py-4 space-y-1">
-            {navItems.map((item) => (
+            {navItems.filter((item) => canAccess(item.permission)).map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -166,30 +289,45 @@ export default function App() {
         {/* CONTENT */}
         <main className={`flex-1 ${hideLayout ? "" : "p-6"}`}>
           <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/sell" element={<Sell />} />
-            <Route path="/inventory" element={<Inventory />} />
-            <Route path="/inventory/check-in" element={<ProductCheckIn />} />
-            <Route path="/held-receipts" element={<HeldReceipts />} />
+            <Route path="/" element={canAccess("dashboard") ? <Dashboard /> : unauthorizedPage} />
+            <Route path="/sell" element={canAccess("sell") ? <Sell /> : unauthorizedPage} />
+            <Route path="/inventory" element={canAccess("inventory") ? <Inventory /> : unauthorizedPage} />
+            <Route path="/inventory/check-in" element={canAccess("inventory") ? <ProductCheckIn /> : unauthorizedPage} />
+            <Route path="/held-receipts" element={canAccess("backOrders") ? <HeldReceipts /> : unauthorizedPage} />
             {/* SETTINGS */}
             <Route
               path="/settings"
               element={
-                <Settings
+                canAccess("settings") ? <Settings
                   user={user}
                   darkMode={darkMode}
                   setDarkMode={setDarkMode}
-                />
+                  /> : unauthorizedPage
               }
             />
 
-            <Route path="/settings/receipt" element={<ReceiptEditor />} />
+            <Route path="/settings/receipt" element={canAccess("receiptEditor") ? <ReceiptEditor /> : unauthorizedPage} />
 
             {/* ✅ ROLE-RESTRICTED PAGE */}
             <Route
                path="/settings/installers"
-               element={<Installers user={user} />}
+               element={canAccess("installers") ? <Installers user={user} canManageInstallers={canAccess("installers")} /> : unauthorizedPage}
               />
+
+            <Route
+              path="/settings/dev"
+              element={
+                canAccess("devMenu") ? (
+                  <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                    Dev menu placeholder.
+                  </div>
+                ) : (
+                  unauthorizedPage
+                )
+              }
+            />
+
+            <Route path="*" element={canAccess("dashboard") ? <Dashboard /> : unauthorizedPage} />
 
 
             {/* PRINT */}
