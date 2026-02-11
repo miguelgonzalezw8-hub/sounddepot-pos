@@ -9,6 +9,7 @@ import {
   setPosAccountActive,
   deletePosAccount,
 } from "../services/authService";
+import { writeSession } from "../services/sessionService";
 
 // ✅ for email-login invites (Firebase Auth login)
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -88,8 +89,12 @@ export default function EmployeesAdmin() {
     if (!String(name || "").trim()) return alert("Name is required.");
     if (String(pin || "").trim().length < 3) return alert("PIN must be at least 3 digits.");
 
+    
+
     setSaving(true);
     try {
+      await writeSession({ tenantId, shopId, posAccountId: posAccount?.id || null });
+      
       await createPosAccount({
         tenantId,
         shopId,
