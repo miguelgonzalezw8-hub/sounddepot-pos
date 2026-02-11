@@ -1,0 +1,545 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* =========================
+       AUTH
+       ========================= */
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // ✅ your dev UID
+    function isDev() {
+      return signedIn() && request.auth.uid == "0AjEwNVNFyc2NS0IhWxkfTACI9Y2";
+    }
+
+    /* =========================
+       USER PROFILE (bootstrap)
+       users/{uid} should contain:
+       - tenantId (string)
+       - role ("owner" | "manager" | ...)
+       - optional shopIds: array<string> (null/empty = all shops)
+       ========================= */
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function userExists() {
+      return signedIn() && exists(userPath());
+    }
+
+    function myUser() {
+      return get(userPath()).data;
+    }
+
+    function hasUserProfile() {
+      return userExists()
+        && myUser().tenantId != null
+        && myUser().tenantId != "";
+    }
+
+    function myTenantId() {
+      return hasUserProfile() ? myUser().tenantId : "";
+    }
+
+        // ✅ claims-first role (matches Codex App.jsx)
+    function claimRole() {
+      return signedIn() && request.auth.token.role != null
+        ? request.auth.token.role
+        : "";
+    }
+
+    function profileRole() {
+      return (hasUserProfile() && myUser().role != null) ? myUser().role : "";
+    }
+
+    function myRole() {
+      return claimRole() != "" ? claimRole() : profileRole();
+    }
+
+    function isOwner() {
+      return myRole() == "owner"
+        || myRole() == "tenant_owner"
+        || myRole() == "main_owner"
+        || myRole() == "tenant";
+    }
+
+    function isManager() {
+      return myRole() == "manager";
+    }
+
+    function isOwnerOrManager() {
+      return isOwner() || isManager();
+    }
+
+
+    // ✅ IMPORTANT FIX:
+    // Treat NULL or EMPTY shopIds as "all shops"
+    function canUseShopId(shopId) {
+      return hasUserProfile()
+        && (
+          myUser().shopIds == null
+          || myUser().shopIds.size() == 0
+          || myUser().shopIds.hasAny([shopId])
+        );
+    }
+
+    /* =========================
+       SESSION (tenant/shop proof)
+       sessions/{uid}
+       ========================= */
+    function sessionPath() {
+      return /databases/$(database)/documents/sessions/$(request.auth.uid);
+    }
+
+    function sessionExists() {
+      return signedIn() && exists(sessionPath());
+    }
+
+    function mySession() {
+      return get(sessionPath()).data;
+    }
+
+    function hasSession() {
+      return sessionExists()
+        && mySession().tenantId != null
+        && mySession().tenantId != "";
+    }
+
+    function sessionTenantId() {
+      return hasSession() ? mySession().tenantId : "";
+    }
+
+    function sessionShopId() {
+      return (hasSession() && mySession().shopId != null) ? mySession().shopId : "";
+    }
+
+    /* =========================
+       CORE COLLECTIONS
+       ========================= */
+
+    match /sessions/{uid} {
+      allow read, create, update, delete: if isDev()
+        || (signedIn() && request.auth.uid == uid);
+    }
+
+    match /users/{uid} {
+      // Self read OR owner/manager can read users in same tenant (via profile or session)
+      allow read: if isDev()
+        || (signedIn() && request.auth.uid == uid)
+        || (hasUserProfile() && isOwnerOrManager() && resource.data.tenantId == myTenantId())
+        || (hasSession() && isOwnerOrManager() && resource.data.tenantId == sessionTenantId());
+
+      // Keep client writes limited
+      allow create, update: if isDev()
+        || (signedIn() && request.auth.uid == uid);
+
+      allow delete: if isDev();
+    }
+
+    match /tenants/{tenantId} {
+      allow read: if isDev()
+        || (hasSession() && tenantId == sessionTenantId())
+        || (hasUserProfile() && tenantId == myTenantId());
+
+      allow write: if isDev();
+    }
+
+    // ✅ broaden shop READ so normal signed-in tenant users can read their shop
+    match /shops/{shopId} {
+      allow read: if isDev()
+  || (hasSession() && resource.data.tenantId == sessionTenantId())
+  || (hasUserProfile() && resource.data.tenantId == myTenantId() && canUseShopId(shopId));
+
+
+      allow create, update: if isDev()
+        || (hasUserProfile()
+            && isOwnerOrManager()
+            && request.resource.data.tenantId == myTenantId());
+
+      allow delete: if isDev();
+    }
+
+   match /posAccounts/{id} {
+  // READ (keep tenant-scoped)
+  allow read: if isDev()
+    || (hasUserProfile()
+        && resource.data.tenantId == myTenantId()
+        && canUseShopId(resource.data.shopId))
+    || (hasSession()
+        && resource.data.tenantId == sessionTenantId());
+
+  // ✅ WRITE: profile OR session
+  allow create, update: if isDev()
+    || (
+      signedIn()
+      && isOwnerOrManager()
+      && request.resource.data.tenantId != null
+      && request.resource.data.tenantId != ""
+      && request.resource.data.shopId != null
+      && request.resource.data.shopId != ""
+      && (
+        // profile path
+        (hasUserProfile()
+          && request.resource.data.tenantId == myTenantId()
+          && canUseShopId(request.resource.data.shopId))
+        // session path
+        || (hasSession()
+          && request.resource.data.tenantId == sessionTenantId()
+          && request.resource.data.shopId == sessionShopId())
+      )
+    );
+
+  allow delete: if isDev()
+    || (hasUserProfile()
+        && isOwner()
+        && resource.data.tenantId == myTenantId()
+        && canUseShopId(resource.data.shopId));
+}
+
+
+    /* =========================
+       INVITES
+       ========================= */
+    match /tenantInvites/{inviteId} {
+      allow create: if isDev();
+
+      allow read: if isDev()
+        || (signedIn() && request.auth.token.email == resource.data.email)
+        || (!signedIn() && resource.data.active == true && resource.data.status == "pending");
+
+      allow update: if isDev()
+        || (signedIn() && request.auth.token.email == resource.data.email);
+
+      allow delete: if isDev();
+    }
+
+    /* =========================
+       EMAIL OUTBOX
+       ========================= */
+    match /mail/{id} {
+      allow read, write: if isDev();
+    }
+
+    /* =========================
+       TENANT-SCOPED HELPERS
+       ========================= */
+    function hasTenantFieldOnResource() {
+      return resource.data.tenantId != null && resource.data.tenantId != "";
+    }
+
+    function hasTenantFieldOnRequest() {
+      return request.resource.data.tenantId != null && request.resource.data.tenantId != "";
+    }
+
+    function allowTenantDocBySession() {
+      return hasSession()
+        && hasTenantFieldOnResource()
+        && resource.data.tenantId == sessionTenantId();
+    }
+
+    function allowTenantCreateBySession() {
+      return hasSession()
+        && hasTenantFieldOnRequest()
+        && request.resource.data.tenantId == sessionTenantId();
+    }
+
+    function allowTenantWriteByProfileBootstrap() {
+      return hasUserProfile()
+        && isOwnerOrManager()
+        && hasTenantFieldOnRequest()
+        && request.resource.data.tenantId == myTenantId();
+    }
+
+    function allowTenantReadByProfileBootstrap() {
+      return hasUserProfile()
+        && hasTenantFieldOnResource()
+        && resource.data.tenantId == myTenantId();
+    }
+
+    function allowTenantRead() {
+      return isDev()
+        || allowTenantDocBySession()
+        || allowTenantReadByProfileBootstrap();
+    }
+
+    function allowTenantCreate() {
+      return isDev()
+        || allowTenantCreateBySession()
+        || allowTenantWriteByProfileBootstrap();
+    }
+
+    function allowTenantUpdateDelete() {
+      return isDev()
+        || allowTenantDocBySession()
+        || (allowTenantReadByProfileBootstrap() && isOwnerOrManager());
+    }
+
+    /* =========================
+       TENANT-SCOPED COLLECTIONS
+       ========================= */
+    match /brands/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /products/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /counters/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /customers/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    /* =========================
+       SETTINGS (FIXED)
+       - Legacy global: settings/security
+       - Tenant-scoped: settings/security_<tenantId>
+       ========================= */
+    match /settings/{id} {
+
+      function isLegacySecurityDoc() {
+        return id == "security";
+      }
+
+      // ✅ tenant security doc id format: security_<tenantId>
+      function isTenantSecurityDoc() {
+        return id.matches("^security_.+");
+      }
+
+      function tenantFromSecurityId() {
+        // For "security_<tenantId>" => "<tenantId>"
+        return id.replace("security_", "");
+      }
+
+      function securityTenantMatches() {
+        return (hasUserProfile() && tenantFromSecurityId() == myTenantId())
+          || (hasSession() && tenantFromSecurityId() == sessionTenantId());
+      }
+
+      function settingsTenantMatchesResource() {
+        return resource.data.tenantId != null
+          && resource.data.tenantId != ""
+          && (resource.data.tenantId == myTenantId()
+              || resource.data.tenantId == sessionTenantId());
+      }
+
+      function settingsTenantMatchesRequest() {
+        return request.resource.data.tenantId != null
+          && request.resource.data.tenantId != ""
+          && (request.resource.data.tenantId == myTenantId()
+              || request.resource.data.tenantId == sessionTenantId());
+      }
+
+      // READ
+      allow read: if isDev()
+        // legacy security doc (no tenant)
+        || (signedIn() && isLegacySecurityDoc() && isOwnerOrManager())
+        // ✅ tenant security doc (works even if doc doesn't exist yet)
+        || (signedIn() && isTenantSecurityDoc() && isOwnerOrManager() && securityTenantMatches())
+        // other tenant-scoped settings by tenantId field
+        || (signedIn() && !isLegacySecurityDoc() && !isTenantSecurityDoc() && settingsTenantMatchesResource());
+
+      // CREATE
+      allow create: if isDev()
+        || (signedIn() && isLegacySecurityDoc() && isOwnerOrManager())
+        || (signedIn() && isTenantSecurityDoc() && isOwnerOrManager() && securityTenantMatches())
+        || (signedIn() && !isLegacySecurityDoc() && !isTenantSecurityDoc() && isOwnerOrManager() && settingsTenantMatchesRequest());
+
+      // UPDATE
+      allow update: if isDev()
+        || (signedIn() && isLegacySecurityDoc() && isOwnerOrManager())
+        || (signedIn() && isTenantSecurityDoc() && isOwnerOrManager() && securityTenantMatches())
+        || (signedIn() && !isLegacySecurityDoc() && !isTenantSecurityDoc()
+            && isOwnerOrManager()
+            && settingsTenantMatchesResource()
+            && request.resource.data.tenantId == resource.data.tenantId);
+
+      // DELETE
+      allow delete: if isDev()
+        || (signedIn() && isLegacySecurityDoc() && isOwnerOrManager())
+        || (signedIn() && isTenantSecurityDoc() && isOwnerOrManager() && securityTenantMatches())
+        || (signedIn() && !isLegacySecurityDoc() && !isTenantSecurityDoc() && isOwnerOrManager() && settingsTenantMatchesResource());
+    }
+
+    match /installers/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /heldReceipts/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /receipts/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /orders/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /orderItems/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /productUnits/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /inventory/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /backorders/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /quotes/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /tasks/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    /* =========================
+       SHOP SUBCOLLECTIONS (FIX)
+       - laborCatalog
+       - bundles
+       - coupons (if you store them there)
+       ========================= */
+
+    function allowShopDocRead(shopId) {
+      return isDev()
+        || (hasSession() && shopId == sessionShopId())
+        || (hasUserProfile() && canUseShopId(shopId));
+    }
+
+    function allowShopDocWrite(shopId) {
+      return isDev()
+        || (hasUserProfile() && isOwnerOrManager() && canUseShopId(shopId));
+    }
+
+    match /shops/{shopId}/laborCatalog/{id} {
+      allow read: if signedIn()
+        && allowShopDocRead(shopId)
+        && hasTenantFieldOnResource()
+        && (
+          (hasUserProfile() && resource.data.tenantId == myTenantId())
+          || (hasSession() && resource.data.tenantId == sessionTenantId())
+          || isDev()
+        );
+
+      allow create: if signedIn()
+        && allowShopDocWrite(shopId)
+        && hasTenantFieldOnRequest()
+        && request.resource.data.tenantId == myTenantId();
+
+      allow update, delete: if signedIn()
+        && allowShopDocWrite(shopId)
+        && hasTenantFieldOnResource()
+        && resource.data.tenantId == myTenantId();
+    }
+
+    match /shops/{shopId}/bundles/{id} {
+      // bundles need to be readable in Sell (no manager PIN)
+      allow read: if signedIn()
+        && allowShopDocRead(shopId)
+        && hasTenantFieldOnResource()
+        && (
+          (hasUserProfile() && resource.data.tenantId == myTenantId())
+          || (hasSession() && resource.data.tenantId == sessionTenantId())
+          || isDev()
+        );
+
+      allow create: if signedIn()
+        && allowShopDocWrite(shopId)
+        && hasTenantFieldOnRequest()
+        && request.resource.data.tenantId == myTenantId();
+
+      allow update, delete: if signedIn()
+        && allowShopDocWrite(shopId)
+        && hasTenantFieldOnResource()
+        && resource.data.tenantId == myTenantId();
+    }
+
+    // OPTIONAL: if coupons are stored under shop
+    match /shops/{shopId}/coupons/{id} {
+      allow read: if signedIn()
+        && allowShopDocRead(shopId)
+        && hasTenantFieldOnResource()
+        && (
+          (hasUserProfile() && resource.data.tenantId == myTenantId())
+          || (hasSession() && resource.data.tenantId == sessionTenantId())
+          || isDev()
+        );
+
+      allow create: if signedIn()
+        && allowShopDocWrite(shopId)
+        && hasTenantFieldOnRequest()
+        && request.resource.data.tenantId == myTenantId();
+
+      allow update, delete: if signedIn()
+        && allowShopDocWrite(shopId)
+        && hasTenantFieldOnResource()
+        && resource.data.tenantId == myTenantId();
+    }
+
+    /* =========================
+       FITMENT (global read)
+       ========================= */
+    match /fitment/{id} {
+      allow read: if signedIn();
+      allow write: if isDev();
+    }
+
+    match /vehicleFitment/{id} {
+      allow read: if signedIn();
+      allow write: if isDev();
+    }
+
+    match /vehicleSpeakerFitment/{id} {
+      allow read: if signedIn();
+      allow write: if isDev();
+    }
+
+    /* =========================
+       DEFAULT
+       ========================= */
+    match /{document=**} {
+      allow read, write: if isDev();
+    }
+  }
+}
