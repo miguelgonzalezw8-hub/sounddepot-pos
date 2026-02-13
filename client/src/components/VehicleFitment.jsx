@@ -51,7 +51,8 @@ function getLocLabel(loc, idx = 0) {
   ];
 
   for (const c of candidates) {
-    if (typeof c === "string" && c.trim()) return normalizeLocationLabel(c);
+    if (typeof c === "string" && c.trim())
+      return normalizeLocationLabel(c);
   }
 
   const fallbackByIndex = [
@@ -63,7 +64,8 @@ function getLocLabel(loc, idx = 0) {
     "Rear Side Panel",
   ];
 
-  if (loc?.sizes?.length) return fallbackByIndex[idx] || `Location ${idx + 1}`;
+  if (loc?.sizes?.length)
+    return fallbackByIndex[idx] || `Location ${idx + 1}`;
   return `Location ${idx + 1}`;
 }
 
@@ -88,7 +90,8 @@ function getLocSizes(loc) {
     loc?.fitSizes ??
     [];
 
-  if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
+  if (Array.isArray(raw))
+    return raw.map((x) => String(x).trim()).filter(Boolean);
 
   if (raw && typeof raw === "object") {
     return Object.values(raw)
@@ -130,7 +133,15 @@ function normSize(s) {
 /* ================= CATEGORY BUCKETING ================= */
 
 function getSkuCandidate(p) {
-  return p?.sku || p?.SKU || p?.partNumber || p?.vendorSku || p?.mpn || p?.name || "";
+  return (
+    p?.sku ||
+    p?.SKU ||
+    p?.partNumber ||
+    p?.vendorSku ||
+    p?.mpn ||
+    p?.name ||
+    ""
+  );
 }
 
 function bucketForProduct(p) {
@@ -139,19 +150,9 @@ function bucketForProduct(p) {
 
   if (isSpeakerProduct(p) || cat.includes("speaker")) return "Speakers";
   if (cat.includes("radio") || cat.includes("head unit")) return "Radios";
-  if (
-    cat.includes("dash") ||
-    cat.includes("kit") ||
-    sku.startsWith("95-") ||
-    sku.startsWith("99-")
-  )
+  if (cat.includes("dash") || cat.includes("kit") || sku.startsWith("95-") || sku.startsWith("99-"))
     return "Dash Kits";
-  if (
-    cat.includes("harness") ||
-    sku.startsWith("70-") ||
-    sku.startsWith("71-") ||
-    sku.includes("HRN-")
-  )
+  if (cat.includes("harness") || sku.startsWith("70-") || sku.startsWith("71-") || sku.includes("HRN-"))
     return "Harnesses";
   if (cat.includes("antenna") || sku.startsWith("40-")) return "Antennas";
   if (cat.includes("interface") || cat.includes("module") || sku.startsWith("ADS-") || sku.includes("RR"))
@@ -162,11 +163,11 @@ function bucketForProduct(p) {
 
 export default function VehicleFitment({
   products = [],
-  bundles = [], // ✅ ADD (no UI changes, just extra items in list)
-  selectedVehicle,
+  selectedVehicle,        // ✅ ADD
   onAddProduct,
   onVehicleSelected,
 }) {
+
   /* ================= VEHICLE ================= */
   const [year, setYear] = useState("");
   const [make, setMake] = useState("");
@@ -217,15 +218,16 @@ export default function VehicleFitment({
     getModelOptions(Number(year), make).then(setModels);
   }, [year, make]);
 
+
   useEffect(() => {
-    if (!selectedVehicle) return;
+  if (!selectedVehicle) return;
 
-    hasMountedRef.current = true;
-
-    setYear(String(selectedVehicle.year || ""));
-    setMake(selectedVehicle.make || "");
-    setModel(selectedVehicle.model || "");
-  }, [selectedVehicle]);
+  hasMountedRef.current = true;
+  
+  setYear(String(selectedVehicle.year || ""));
+  setMake(selectedVehicle.make || "");
+  setModel(selectedVehicle.model || "");
+}, [selectedVehicle]);
 
   /* ================= FIND FITMENT (FIXED) ================= */
   useEffect(() => {
@@ -292,25 +294,11 @@ export default function VehicleFitment({
     return Array.from(map.values());
   }, [fitment, products, year]);
 
-  /* ================= BUNDLES AS PRODUCTS ================= */
-  // ✅ Keep bundles rendering identical to products (same card/button),
-  // ✅ but mark them so Sell.jsx can expand them.
-  const bundleAsProducts = useMemo(() => {
-    return (bundles || []).map((b) => ({
-      id: `bundle:${b.id}`,
-      name: b.name,
-      price: Number(b.bundlePrice || 0),
-      sku: b.sku || "BUNDLE",
-      brand: "Bundle",
-      category: "Bundle",
-      imageUrl: b.imageUrl || "", // optional (won't change UI)
-      isBundle: true,
-      _bundle: b,
-    }));
-  }, [bundles]);
-
   /* ================= LOCATION OPTIONS ================= */
-  const locRows = useMemo(() => normalizeLocationsFromFitment(fitment), [fitment]);
+  const locRows = useMemo(
+    () => normalizeLocationsFromFitment(fitment),
+    [fitment]
+  );
 
   const locationOptions = useMemo(() => {
     const set = new Set();
@@ -341,7 +329,9 @@ export default function VehicleFitment({
   const brandOptions = useMemo(() => {
     const set = new Set();
     const base =
-      bucket === "All" ? recommended : recommended.filter((p) => bucketForProduct(p) === bucket);
+      bucket === "All"
+        ? recommended
+        : recommended.filter((p) => bucketForProduct(p) === bucket);
 
     base.forEach((p) => p.brand && set.add(p.brand));
     return ["All", ...Array.from(set).sort()];
@@ -360,7 +350,9 @@ export default function VehicleFitment({
     }
 
     if (bucket === "Speakers" && location !== "All") {
-      const row = locRows.find((r) => prettyLocationLabel(r.label) === location);
+      const row = locRows.find(
+        (r) => prettyLocationLabel(r.label) === location
+      );
       const allowed = new Set((row?.sizes || []).map(normSize));
 
       list = list.filter((p) => {
@@ -409,9 +401,7 @@ export default function VehicleFitment({
         >
           <option value="">Year</option>
           {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
+            <option key={y} value={y}>{y}</option>
           ))}
         </select>
 
@@ -426,9 +416,7 @@ export default function VehicleFitment({
         >
           <option value="">Make</option>
           {makes.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
+            <option key={m} value={m}>{m}</option>
           ))}
         </select>
 
@@ -440,9 +428,7 @@ export default function VehicleFitment({
         >
           <option value="">Model</option>
           {models.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
+            <option key={m} value={m}>{m}</option>
           ))}
         </select>
       </div>
@@ -459,10 +445,12 @@ export default function VehicleFitment({
       {fitment && (
         <div className="max-h-[80vh] overflow-y-auto">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {bundleAsProducts.length === 0 && filteredProducts.length === 0 ? (
-              <div className="col-span-full text-xs text-gray-500">No matches</div>
+            {filteredProducts.length === 0 ? (
+              <div className="col-span-full text-xs text-gray-500">
+                No matches
+              </div>
             ) : (
-              [...bundleAsProducts, ...filteredProducts].map((p) => (
+              filteredProducts.map((p) => (
                 <button
                   key={p.id}
                   onMouseDown={() => onAddProduct?.(p)}
@@ -480,7 +468,9 @@ export default function VehicleFitment({
                     )}
                   </div>
 
-                  <div className="text-sm font-semibold line-clamp-2">{p.name}</div>
+                  <div className="text-sm font-semibold line-clamp-2">
+                    {p.name}
+                  </div>
                   <div className="text-[11px] text-gray-500 mt-1">
                     {(p.sku || p.name || "—")} • {p.brand || "—"}
                   </div>
