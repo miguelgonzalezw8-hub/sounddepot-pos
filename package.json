@@ -1,5 +1,43 @@
 {
+  "name": "sounddepot-pos-desktop",
+  "private": true,
+  "version": "0.0.1",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "client:dev": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build -- --emptyOutDir",
+    "client:preview": "npm --prefix client run preview",
+    "electron:dev": "concurrently -k \"npm run client:dev\" \"wait-on -t 60000 http-get://localhost:5173 && electron .\"",
+    "electron:build": "set NODE_OPTIONS=--max-old-space-size=8192 && npm run client:build && electron-builder"
+  },
   "dependencies": {
     "csv-parser": "^3.2.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^40.4.1",
+    "electron-builder": "^26.7.0",
+    "wait-on": "^9.0.4"
+  },
+  "build": {
+    "appId": "com.sounddepot.pos",
+    "productName": "SoundDepot POS",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "client/dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

@@ -1,9 +1,27 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 
-const METRA_FILE =
-  "client/src/data/metra/Metra_Vehicle_Application_Guide sheet 1.csv";
-const OUTPUT = "client/src/data/processed/vehicle_accessories.json";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const METRA_FILE = path.join(
+  __dirname,
+  "..",
+  "src",
+  "data",
+  "metra",
+  "Metra_Vehicle_Application_Guide sheet 1.csv"
+);
+
+const OUTPUT = path.join(
+  __dirname,
+  "..",
+  "src",
+  "data",
+  "processed",
+  "vehicle_accessories.json"
+);
 
 function clean(v) {
   return String(v ?? "").trim();
@@ -27,13 +45,46 @@ function ensure(map, key) {
 function pushUnique(arr, v) {
   const s = clean(v);
   if (!s) return;
-  if (s === "N/A" || s === "-" || s === "N/R") return;
+  const u = s.toUpperCase();
+  if (u === "N/A" || u === "-" || u === "N/R") return;
   if (!arr.includes(s)) arr.push(s);
 }
 
-// Basic CSV split for this specific file shape (no quoted commas in your shown rows)
-function splitRow(line) {
-  return String(line || "").split(",");
+/**
+ * Robust CSV parser for one line:
+ * - handles quoted commas
+ * - handles escaped quotes ("")
+ */
+function parseCsvLine(line) {
+  const out = [];
+  let cur = "";
+  let inQuotes = false;
+
+  const s = String(line ?? "");
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+
+    if (ch === '"') {
+      // double quote inside quoted string => literal quote
+      if (inQuotes && s[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (ch === "," && !inQuotes) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
 }
 
 function padTo(arr, n) {
@@ -44,7 +95,9 @@ function padTo(arr, n) {
 // Shift section row (row1) so that TURBO KITS lines up above SINGLE DIN
 function alignSectionRow(sectionRow, roleRow) {
   const kitsIdx = sectionRow.findIndex((x) => clean(x) === "TURBO KITS");
-  const singleIdx = roleRow.findIndex((x) => clean(x).toUpperCase().includes("SINGLE DIN"));
+  const singleIdx = roleRow.findIndex((x) =>
+    clean(x).toUpperCase().includes("SINGLE DIN")
+  );
 
   if (kitsIdx === -1 || singleIdx === -1) return sectionRow; // can't align safely
 
@@ -69,30 +122,34 @@ function forwardFill(row) {
 
 const lines = fs.readFileSync(METRA_FILE, "utf8").split(/\r?\n/);
 
-// Get first ~few rows as arrays
-const r1 = splitRow(lines[0] || "");
-const r2 = splitRow(lines[1] || "");
-const r3 = splitRow(lines[2] || "");
-const r4 = splitRow(lines[3] || "");
+// Header rows
+const r1 = parseCsvLine(lines[0] || "");
+const r2 = parseCsvLine(lines[1] || "");
+const r3 = parseCsvLine(lines[2] || "");
 
-// Determine max columns from a real data row (row 6 in your sample is perfect)
-let maxCols = Math.max(r1.length, r2.length, r3.length, r4.length);
-for (let i = 4; i < Math.min(lines.length, 50); i++) {
-  const cols = splitRow(lines[i]);
+// Determine max columns from early scan
+let maxCols = Math.max(r1.length, r2.length, r3.length);
+for (let i = 3; i < Math.min(lines.length, 200); i++) {
+  const cols = parseCsvLine(lines[i]);
   if (cols.length > maxCols) maxCols = cols.length;
 }
 
-// Pad header rows to maxCols
+// Pad header rows
 let sectionRow = padTo(r1.slice(), maxCols);
 const subsectionRow = padTo(r2.slice(), maxCols);
 const roleRow = padTo(r3.slice(), maxCols);
 
-// Align and then forward-fill section/subsection
+// Align and pad again (alignment may increase length)
 sectionRow = alignSectionRow(sectionRow, roleRow);
-sectionRow = padTo(sectionRow, maxCols);
+if (sectionRow.length > maxCols) maxCols = sectionRow.length;
 
-const sectionFF = forwardFill(sectionRow);
-const subsectionFF = forwardFill(subsectionRow);
+sectionRow = padTo(sectionRow, maxCols);
+padTo(subsectionRow, maxCols);
+padTo(roleRow, maxCols);
+
+// Forward-fill header context
+const sectionFF = forwardFill(sectionRow).map((x) => clean(x));
+const subsectionFF = forwardFill(subsectionRow).map((x) => clean(x));
 
 // Build colMap using context carry-forward
 const colMap = {};
@@ -100,8 +157,6 @@ const colMap = {};
 // DASH KIT columns: TURBO KITS area + current DIN context
 let currentDin = null;
 
-// HARNESS columns: TURBO WIRE + amp context from subsection row + role from role row
-// ANTENNAS columns: ANTENNAWORKS + sub context from subsection row + role from role row
 for (let idx = 0; idx < maxCols; idx++) {
   const sec = clean(sectionFF[idx]).toUpperCase();
   const sub = clean(subsectionFF[idx]).toUpperCase();
@@ -112,30 +167,34 @@ for (let idx = 0; idx < maxCols; idx++) {
   if (role.includes("DOUBLE DIN")) currentDin = "doubleDin";
 
   if (sec === "TURBO KITS") {
-    if (currentDin) {
-      colMap[idx] = { type: "dashKits", sub: currentDin };
-    }
+    if (currentDin) colMap[idx] = { type: "dashKits", sub: currentDin };
   }
 
   if (sec === "TURBO WIRE") {
-    const amp =
-      sub.includes("NON-AMPLIFIED") ? "nonAmplified" :
-      sub.includes("AMPLIFIED") ? "amplified" :
-      null;
+    const amp = sub.includes("NON-AMPLIFIED")
+      ? "nonAmplified"
+      : sub.includes("AMPLIFIED")
+      ? "amplified"
+      : null;
 
     if (!amp) continue;
 
-    if (role.includes("INTO CAR")) colMap[idx] = { type: "harnesses", amp, role: "intoCar" };
-    else if (role.includes("INTO RADIO")) colMap[idx] = { type: "harnesses", amp, role: "intoRadio" };
-    else if (role.includes("BYPASS")) colMap[idx] = { type: "harnesses", amp, role: "bypass" };
+    if (role.includes("INTO CAR"))
+      colMap[idx] = { type: "harnesses", amp, role: "intoCar" };
+    else if (role.includes("INTO RADIO"))
+      colMap[idx] = { type: "harnesses", amp, role: "intoRadio" };
+    else if (role.includes("BYPASS"))
+      colMap[idx] = { type: "harnesses", amp, role: "bypass" };
   }
 
   if (sec === "ANTENNAWORKS") {
-    // subsection tells whether we're in adapter vs antenna group
     if (sub.includes("ANTENNA ADAPTER")) {
-      colMap[idx] = { type: "antennas", sub: "adapter", role: clean(roleRow[idx]) || "adapter" };
+      colMap[idx] = {
+        type: "antennas",
+        sub: "adapter",
+        role: clean(roleRow[idx]) || "adapter",
+      };
     } else if (sub.includes("ANTENNA")) {
-      // role row carries FIXED/POWER in your sample
       if (role.includes("POWER")) colMap[idx] = { type: "antennas", sub: "power" };
       else if (role.includes("FIXED")) colMap[idx] = { type: "antennas", sub: "fixed" };
       else colMap[idx] = { type: "antennas", sub: "antenna" };
@@ -143,38 +202,75 @@ for (let idx = 0; idx < maxCols; idx++) {
   }
 }
 
-// Parse data rows (starting at line 5 / index 4; your row 5 is "Acura, , ,...")
+// Parse data rows
 const out = {};
 
-for (let li = 4; li < lines.length; li++) {
-  const row = padTo(splitRow(lines[li]), maxCols);
+let lastMake = "";
+let processedRows = 0;
+let skippedBrandRows = 0;
+let expandedVehicleKeys = 0;
 
-  const make = clean(row[0]);
-  const model = clean(row[1]);
+for (let li = 3; li < lines.length; li++) {
+  if (!lines[li] || !clean(lines[li])) continue;
+
+  const row = padTo(parseCsvLine(lines[li]), maxCols);
+
+  // Forward-fill MAKE across continuation rows
+  let make = clean(row[0]);
+  const modelRaw = clean(row[1]);
   const trim = clean(row[2]);
-  const yearStart = Number(clean(row[4]));
-  const yearEnd = Number(clean(row[5]));
 
-  // skip non-data / brand-only rows
-  if (!make || !model || !yearStart || !yearEnd) continue;
+  if (make) lastMake = make;
+  else make = lastMake;
 
-  for (let y = yearStart; y <= yearEnd; y++) {
-    const k = vehicleKey(y, make, model, trim || null);
-    ensure(out, k);
+  // Some rows contain multiple models separated by commas
+  const models = modelRaw
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
 
-    for (const [idxStr, meta] of Object.entries(colMap)) {
-      const idx = Number(idxStr);
-      const sku = clean(row[idx]);
-      if (!sku) continue;
+  // Skip brand-only rows like "Acura,,,,," (make present, model missing)
+  if (!make || models.length === 0) {
+    if (make && models.length === 0) skippedBrandRows++;
+    continue;
+  }
 
-      if (meta.type === "dashKits") {
-        pushUnique(out[k].dashKits[meta.sub], sku);
-      } else if (meta.type === "harnesses") {
-        out[k].harnesses[meta.amp][meta.role] ??= [];
-        pushUnique(out[k].harnesses[meta.amp][meta.role], sku);
-      } else if (meta.type === "antennas") {
-        out[k].antennas[meta.sub] ??= [];
-        pushUnique(out[k].antennas[meta.sub], sku);
+  // Year columns (based on your current logic)
+  const yearStartRaw = clean(row[4]);
+  const yearEndRaw = clean(row[5]);
+
+  const yearStart = Number(yearStartRaw);
+  const yearEnd = Number(yearEndRaw);
+
+  // skip non-data rows
+  if (!Number.isFinite(yearStart) || !Number.isFinite(yearEnd)) continue;
+  if (yearStart <= 0 || yearEnd <= 0) continue;
+
+  processedRows++;
+
+  const ys = Math.min(yearStart, yearEnd);
+  const ye = Math.max(yearStart, yearEnd);
+
+  for (let y = ys; y <= ye; y++) {
+    for (const model of models) {
+      const k = vehicleKey(y, make, model, trim || null);
+      ensure(out, k);
+      expandedVehicleKeys++;
+
+      for (const [idxStr, meta] of Object.entries(colMap)) {
+        const idx = Number(idxStr);
+        const sku = clean(row[idx]);
+        if (!sku) continue;
+
+        if (meta.type === "dashKits") {
+          pushUnique(out[k].dashKits[meta.sub], sku);
+        } else if (meta.type === "harnesses") {
+          out[k].harnesses[meta.amp][meta.role] ??= [];
+          pushUnique(out[k].harnesses[meta.amp][meta.role], sku);
+        } else if (meta.type === "antennas") {
+          out[k].antennas[meta.sub] ??= [];
+          pushUnique(out[k].antennas[meta.sub], sku);
+        }
       }
     }
   }
@@ -182,4 +278,8 @@ for (let li = 4; li < lines.length; li++) {
 
 fs.mkdirSync(path.dirname(OUTPUT), { recursive: true });
 fs.writeFileSync(OUTPUT, JSON.stringify(out, null, 2));
+
 console.log("✅ vehicle_accessories.json rebuilt (Metra headers aligned)");
+console.log(
+  `ℹ️ rows processed=${processedRows}, brand-only skipped=${skippedBrandRows}, vehicleKeysExpanded=${expandedVehicleKeys}, uniqueVehicleKeys=${Object.keys(out).length}`
+);

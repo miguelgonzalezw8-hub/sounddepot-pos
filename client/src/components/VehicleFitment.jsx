@@ -114,21 +114,70 @@ function normalizeLocationsFromFitment(fitment) {
   return fitment.locations
     .map((loc, idx) => {
       const label = getLocLabel(loc, idx);
-      const sizes = getLocSizes(loc);
+      const sizes = getLocSizes(loc).map(canonicalSpeakerSizeLabel);
       if (!label || sizes.length === 0) return null;
       return { label, sizes };
     })
     .filter(Boolean);
 }
 
-function normSize(s) {
-  return String(s || "")
+function parseInches(str) {
+  const s = String(str || "")
     .toLowerCase()
-    .replace(/\s+/g, " ")
     .replace(/″|”|“/g, '"')
     .replace(/inches|inch|in\./g, "in")
+    .replace(/["]/g, "")
+    .trim();
+
+  // handle unicode fractions like ¾ ½ ¼
+  const fracMap = { "¼": "1/4", "½": "1/2", "¾": "3/4" };
+  const s2 = s.replace(/[¼½¾]/g, (m) => fracMap[m]);
+
+  // matches: "6.5", "6 3/4", "6-3/4", "6 1/2"
+  const m = s2.match(/^(\d+(?:\.\d+)?)\s*(?:[-\s])?\s*(\d+\/\d+)?/);
+  if (!m) return null;
+
+  const whole = Number(m[1]);
+  if (!Number.isFinite(whole)) return null;
+
+  let frac = 0;
+  if (m[2]) {
+    const [a, b] = m[2].split("/").map(Number);
+    if (Number.isFinite(a) && Number.isFinite(b) && b !== 0) frac = a / b;
+  }
+
+  return whole + frac;
+}
+
+// Canonicalize to the sizes YOU want to treat as "same"
+function canonicalSpeakerSizeLabel(raw) {
+  const inches = parseInches(raw);
+  if (!Number.isFinite(inches)) return String(raw || "").trim();
+
+  // ---- common equivalence groups ----
+  // You asked specifically to treat 6.5 and 6 3/4 as same.
+  // So we bucket anything near 6.5–6.75 into "6.5"
+  if (inches >= 6.4 && inches <= 6.8) return '6.5"';
+
+  if (inches >= 5.1 && inches <= 5.4) return '5.25"';
+  if (inches >= 3.4 && inches <= 3.6) return '3.5"';
+  if (inches >= 4.9 && inches <= 5.05) return '5"';
+  if (inches >= 3.9 && inches <= 4.1) return '4"';
+  if (inches >= 6.9 && inches <= 7.1) return '7"';
+  if (inches >= 7.9 && inches <= 8.1) return '8"';
+
+  // fallback: keep a clean numeric label
+  const rounded = Math.round(inches * 4) / 4; // nearest 0.25"
+  return `${rounded}"`;
+}
+
+function normSize(s) {
+  return canonicalSpeakerSizeLabel(s)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
     .trim();
 }
+
 
 /* ================= CATEGORY BUCKETING ================= */
 
@@ -350,21 +399,44 @@ export default function VehicleFitment({
     }
 
     if (bucket === "Speakers" && location !== "All") {
-      const row = locRows.find(
-        (r) => prettyLocationLabel(r.label) === location
-      );
-      const allowed = new Set((row?.sizes || []).map(normSize));
+  const row = locRows.find((r) => prettyLocationLabel(r.label) === location);
 
-      list = list.filter((p) => {
-        if (!isSpeakerProduct(p)) return false;
-        const sizes = Array.isArray(p.speakerSizes)
-          ? p.speakerSizes
-          : p.speakerSize
-          ? [p.speakerSize]
-          : [];
-        return sizes.some((s) => allowed.has(normSize(s)));
-      });
-    }
+  // Fitment sizes -> numeric inches
+  const fitInches = (row?.sizes || [])
+    .map(parseInches)
+    .filter((n) => Number.isFinite(n));
+
+  // If fitment didn't provide usable sizes, don't hide everything
+  if (fitInches.length === 0) {
+    // keep speakers visible rather than "No matches"
+    list = list.filter((p) => isSpeakerProduct(p));
+  } else {
+    list = list.filter((p) => {
+      if (!isSpeakerProduct(p)) return false;
+
+      const ps = Array.isArray(p.speakerSizes)
+        ? p.speakerSizes
+        : p.speakerSize
+        ? [p.speakerSize]
+        : [];
+
+      const pInches = ps
+        .map(parseInches)
+        .filter((n) => Number.isFinite(n));
+
+      if (pInches.length === 0) return false;
+
+      // Treat 6.5 and 6.75 as equivalent by allowing a tolerance
+      // (0.35" covers 6.5 ↔ 6.75 but won't accidentally match 5.25 or 8)
+      const TOL = 0.35;
+
+      return pInches.some((pin) =>
+        fitInches.some((fin) => Math.abs(pin - fin) <= TOL)
+      );
+    });
+  }
+}
+
 
     if (bucket === "Radios" && din !== "All") {
       const allowed = getAllowedDinSizes({
