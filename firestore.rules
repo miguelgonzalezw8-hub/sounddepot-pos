@@ -43,7 +43,7 @@ service cloud.firestore {
       return hasUserProfile() ? myUser().tenantId : "";
     }
 
-        // ✅ claims-first role (matches Codex App.jsx)
+    // ✅ claims-first role (matches your app)
     function claimRole() {
       return signedIn() && request.auth.token.role != null
         ? request.auth.token.role
@@ -72,7 +72,6 @@ service cloud.firestore {
     function isOwnerOrManager() {
       return isOwner() || isManager();
     }
-
 
     // ✅ IMPORTANT FIX:
     // Treat NULL or EMPTY shopIds as "all shops"
@@ -115,6 +114,14 @@ service cloud.firestore {
       return (hasSession() && mySession().shopId != null) ? mySession().shopId : "";
     }
 
+    function sessionMode() {
+      return (hasSession() && mySession().mode != null) ? mySession().mode : "";
+    }
+
+    function isOwnerTerminal() {
+      return sessionMode() == "owner";
+    }
+
     /* =========================
        CORE COLLECTIONS
        ========================= */
@@ -146,58 +153,64 @@ service cloud.firestore {
       allow write: if isDev();
     }
 
-    // ✅ broaden shop READ so normal signed-in tenant users can read their shop
+    // ✅ shops: READ already supports session/profile
+    // ✅ shops: WRITE now supports session/profile (MINIMAL SAFE ADD)
     match /shops/{shopId} {
       allow read: if isDev()
-  || (hasSession() && resource.data.tenantId == sessionTenantId())
-  || (hasUserProfile() && resource.data.tenantId == myTenantId() && canUseShopId(shopId));
-
+        || (hasSession() && resource.data.tenantId == sessionTenantId())
+        || (hasUserProfile() && resource.data.tenantId == myTenantId() && canUseShopId(shopId));
 
       allow create, update: if isDev()
-        || (hasUserProfile()
-            && isOwnerOrManager()
-            && request.resource.data.tenantId == myTenantId());
+        || (
+          signedIn()
+          && isOwnerOrManager()
+          && request.resource.data.tenantId != null
+          && request.resource.data.tenantId != ""
+          && (
+            (hasUserProfile() && request.resource.data.tenantId == myTenantId())
+            || (hasSession() && request.resource.data.tenantId == sessionTenantId())
+          )
+        );
 
       allow delete: if isDev();
     }
 
-   match /posAccounts/{id} {
-  // READ (keep tenant-scoped)
-  allow read: if isDev()
-    || (hasUserProfile()
-        && resource.data.tenantId == myTenantId()
-        && canUseShopId(resource.data.shopId))
-    || (hasSession()
-        && resource.data.tenantId == sessionTenantId());
-
-  // ✅ WRITE: profile OR session
-  allow create, update: if isDev()
-    || (
-      signedIn()
-      && isOwnerOrManager()
-      && request.resource.data.tenantId != null
-      && request.resource.data.tenantId != ""
-      && request.resource.data.shopId != null
-      && request.resource.data.shopId != ""
-      && (
-        // profile path
-        (hasUserProfile()
-          && request.resource.data.tenantId == myTenantId()
-          && canUseShopId(request.resource.data.shopId))
-        // session path
+    match /posAccounts/{id} {
+      // READ (keep tenant-scoped)
+      allow read: if isDev()
+        || (hasUserProfile()
+            && resource.data.tenantId == myTenantId()
+            && canUseShopId(resource.data.shopId))
         || (hasSession()
-          && request.resource.data.tenantId == sessionTenantId()
-          && request.resource.data.shopId == sessionShopId())
-      )
-    );
+            && resource.data.tenantId == sessionTenantId());
 
-  allow delete: if isDev()
-    || (hasUserProfile()
-        && isOwner()
-        && resource.data.tenantId == myTenantId()
-        && canUseShopId(resource.data.shopId));
-}
+      // ✅ WRITE: profile OR session
+      allow create, update: if isDev()
+        || (
+          signedIn()
+          && (isOwnerOrManager() || isOwnerTerminal())
+          && request.resource.data.tenantId != null
+          && request.resource.data.tenantId != ""
+          && request.resource.data.shopId != null
+          && request.resource.data.shopId != ""
+          && (
+            // profile path
+            (hasUserProfile()
+              && request.resource.data.tenantId == myTenantId()
+              && canUseShopId(request.resource.data.shopId))
+            // session path
+            || (hasSession()
+              && request.resource.data.tenantId == sessionTenantId()
+              && request.resource.data.shopId == sessionShopId())
+          )
+        );
 
+      allow delete: if isDev()
+        || (hasUserProfile()
+            && isOwner()
+            && resource.data.tenantId == myTenantId()
+            && canUseShopId(resource.data.shopId));
+    }
 
     /* =========================
        INVITES
@@ -276,6 +289,14 @@ service cloud.firestore {
         || (allowTenantReadByProfileBootstrap() && isOwnerOrManager());
     }
 
+    function isTenantCounterId(counterId) {
+      return (
+        (hasUserProfile() && counterId.matches("^t_" + myTenantId() + "_.+$")) ||
+        (hasSession() && counterId.matches("^t_" + sessionTenantId() + "_.+$")) ||
+        isDev()
+      );
+    }
+
     /* =========================
        TENANT-SCOPED COLLECTIONS
        ========================= */
@@ -292,9 +313,8 @@ service cloud.firestore {
     }
 
     match /counters/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
+      // counters are stored like: counters/t_<tenantId>_products_SE
+      allow read, create, update, delete: if isTenantCounterId(id);
     }
 
     match /customers/{id} {
@@ -447,9 +467,11 @@ service cloud.firestore {
         || (hasUserProfile() && canUseShopId(shopId));
     }
 
+    // ✅ UPDATED: write allowed via profile OR via session (current terminal shop)
     function allowShopDocWrite(shopId) {
       return isDev()
-        || (hasUserProfile() && isOwnerOrManager() && canUseShopId(shopId));
+        || (hasUserProfile() && isOwnerOrManager() && canUseShopId(shopId))
+        || (hasSession() && isOwnerOrManager() && shopId == sessionShopId());
     }
 
     match /shops/{shopId}/laborCatalog/{id} {
@@ -465,12 +487,20 @@ service cloud.firestore {
       allow create: if signedIn()
         && allowShopDocWrite(shopId)
         && hasTenantFieldOnRequest()
-        && request.resource.data.tenantId == myTenantId();
+        && (
+          (hasUserProfile() && request.resource.data.tenantId == myTenantId())
+          || (hasSession() && request.resource.data.tenantId == sessionTenantId())
+          || isDev()
+        );
 
       allow update, delete: if signedIn()
         && allowShopDocWrite(shopId)
         && hasTenantFieldOnResource()
-        && resource.data.tenantId == myTenantId();
+        && (
+          (hasUserProfile() && resource.data.tenantId == myTenantId())
+          || (hasSession() && resource.data.tenantId == sessionTenantId())
+          || isDev()
+        );
     }
 
     match /shops/{shopId}/bundles/{id} {
@@ -487,12 +517,20 @@ service cloud.firestore {
       allow create: if signedIn()
         && allowShopDocWrite(shopId)
         && hasTenantFieldOnRequest()
-        && request.resource.data.tenantId == myTenantId();
+        && (
+          (hasUserProfile() && request.resource.data.tenantId == myTenantId())
+          || (hasSession() && request.resource.data.tenantId == sessionTenantId())
+          || isDev()
+        );
 
       allow update, delete: if signedIn()
         && allowShopDocWrite(shopId)
         && hasTenantFieldOnResource()
-        && resource.data.tenantId == myTenantId();
+        && (
+          (hasUserProfile() && resource.data.tenantId == myTenantId())
+          || (hasSession() && resource.data.tenantId == sessionTenantId())
+          || isDev()
+        );
     }
 
     // OPTIONAL: if coupons are stored under shop
@@ -509,12 +547,20 @@ service cloud.firestore {
       allow create: if signedIn()
         && allowShopDocWrite(shopId)
         && hasTenantFieldOnRequest()
-        && request.resource.data.tenantId == myTenantId();
+        && (
+          (hasUserProfile() && request.resource.data.tenantId == myTenantId())
+          || (hasSession() && request.resource.data.tenantId == sessionTenantId())
+          || isDev()
+        );
 
       allow update, delete: if signedIn()
         && allowShopDocWrite(shopId)
         && hasTenantFieldOnResource()
-        && resource.data.tenantId == myTenantId();
+        && (
+          (hasUserProfile() && resource.data.tenantId == myTenantId())
+          || (hasSession() && resource.data.tenantId == sessionTenantId())
+          || isDev()
+        );
     }
 
     /* =========================
