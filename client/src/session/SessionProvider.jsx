@@ -15,9 +15,12 @@ import { db } from "../firebase";
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 
 const SessionContext = createContext(null);
-
 // ✅ your dev UID (matches rules)
 const DEV_UID = "0AjEwNVNFyc2NS0IhWxkfTACI9Y2";
+
+// ✅ AUTO-LOCK SETTINGS (ADDED)
+// shared terminals only; inactivity forces PIN again
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (change if you want)
 
 export function SessionProvider({ children }) {
   const [firebaseUser, setFirebaseUser] = useState(null);
@@ -40,34 +43,41 @@ export function SessionProvider({ children }) {
   // Track last boot key to avoid redundant work
   const lastBootKeyRef = useRef("");
 
+  // ✅ idle timer refs (ADDED)
+  const idleTimerRef = useRef(null);
+
   // ---------------------------
   // Helpers
   // ---------------------------
 
   async function ensureSessionDoc({ user, terminalConfig }) {
-  if (!user?.uid) return { ok: false, reason: "no-user" };
-  if (user.uid === DEV_UID) return { ok: true, reason: "dev" };
-  if (!terminalConfig?.tenantId || !terminalConfig?.shopId) return { ok: false, reason: "no-terminal" };
+    if (!user?.uid) return { ok: false, reason: "no-user" };
+    if (user.uid === DEV_UID) return { ok: true, reason: "dev" };
+    if (!terminalConfig?.tenantId || !terminalConfig?.shopId)
+      return { ok: false, reason: "no-terminal" };
 
-  const ref = doc(db, "sessions", user.uid);
+    const ref = doc(db, "sessions", user.uid);
 
-  // 1) write
-  await setDoc(ref, {
-    tenantId: terminalConfig.tenantId,
-    shopId: terminalConfig.shopId,
-    mode: terminalConfig.mode || "shared",
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
+    // 1) write
+    await setDoc(
+      ref,
+      {
+        tenantId: terminalConfig.tenantId,
+        shopId: terminalConfig.shopId,
+        mode: terminalConfig.mode || "shared",
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
 
-  // 2) read back (proves rules allow it + data present)
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return { ok: false, reason: "session-missing-after-write" };
+    // 2) read back (proves rules allow it + data present)
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return { ok: false, reason: "session-missing-after-write" };
 
-  const data = snap.data() || {};
-  const ok = !!data.tenantId;
-  return { ok, reason: ok ? "session-ok" : "session-tenantid-missing", data };
-}
-
+    const data = snap.data() || {};
+    const ok = !!data.tenantId;
+    return { ok, reason: ok ? "session-ok" : "session-tenantid-missing", data };
+  }
 
   function clearResolved() {
     setTenant(null);
@@ -105,12 +115,12 @@ export function SessionProvider({ children }) {
 
     async function run() {
       setBooting(true);
-console.log("[BOOT CHECK]", {
-  uid: firebaseUser?.uid,
-  devMode,
-  terminal,
-  hasTenantShop: !!terminal?.tenantId && !!terminal?.shopId,
-});
+      console.log("[BOOT CHECK]", {
+        uid: firebaseUser?.uid,
+        devMode,
+        terminal,
+        hasTenantShop: !!terminal?.tenantId && !!terminal?.shopId,
+      });
 
       try {
         // ✅ DEV can boot without terminal config
@@ -146,19 +156,16 @@ console.log("[BOOT CHECK]", {
 
         // ✅ MOST IMPORTANT: make sure sessions/{uid} exists before tenant-scoped reads
         if (!devMode) {
-          await ensureSessionDoc({ user: firebaseUser, terminalConfig: terminal });
-          if (cancelled) return;
-        }
-        if (!devMode) {
           const res = await ensureSessionDoc({ user: firebaseUser, terminalConfig: terminal });
           console.log("[SESSION ENSURE]", res);
 
-        if (!res.ok) {
-    // stop here so we don't spam permission-denied
-    clearResolved();
-    return;
-  }
-}
+          if (!res.ok) {
+            // stop here so we don't spam permission-denied
+            clearResolved();
+            return;
+          }
+          if (cancelled) return;
+        }
 
         const [t, s] = await Promise.all([
           loadTenant(terminal.tenantId),
@@ -181,13 +188,7 @@ console.log("[BOOT CHECK]", {
     return () => {
       cancelled = true;
     };
-  }, [
-    devMode,
-    firebaseUser,
-    terminal?.tenantId,
-    terminal?.shopId,
-    terminal?.mode,
-  ]);
+  }, [devMode, firebaseUser, terminal?.tenantId, terminal?.shopId, terminal?.mode]);
 
   async function doUnlock(pin) {
     if (!terminal?.tenantId || !terminal?.shopId) return null;
@@ -215,6 +216,53 @@ console.log("[BOOT CHECK]", {
 
     setPosAccount(null);
   }
+
+  // ---------------------------
+  // ✅ AUTO-LOCK ON INACTIVITY (ADDED)
+  // Shared terminals only: if posAccount is set and idle too long -> lock()
+  // ---------------------------
+  useEffect(() => {
+    // only apply to SHARED terminals (PIN flow)
+    const isSharedTerminal = !devMode && terminal?.mode !== "owner";
+    const isUnlockedShared = isSharedTerminal && !!posAccount;
+
+    // clear any running timer if not active
+    if (!isUnlockedShared) {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+      return;
+    }
+
+    const reset = () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => {
+        // lock after inactivity
+        setPosAccount(null);
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    // start timer now
+    reset();
+
+    // activity events
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+
+    // optional: lock immediately when the tab/app loses focus
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        setPosAccount(null);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+      events.forEach((e) => window.removeEventListener(e, reset));
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [devMode, terminal?.mode, posAccount]);
 
   async function resetTerminal() {
     clearTerminalConfig();
@@ -255,16 +303,7 @@ console.log("[BOOT CHECK]", {
       resetTerminal,
       loadUserProfile,
     }),
-    [
-      firebaseUser,
-      devMode,
-      terminal,
-      tenant,
-      shop,
-      posAccount,
-      booting,
-      unlocking,
-    ]
+    [firebaseUser, devMode, terminal, tenant, shop, posAccount, booting, unlocking]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

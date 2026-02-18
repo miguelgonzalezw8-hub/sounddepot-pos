@@ -40,14 +40,14 @@ export default function EmployeesAdmin() {
   // =========================
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
-  const [role, setRole] = useState("sales");
+  const [role, setRole] = useState("sales"); // ✅ POS roles only
   const [saving, setSaving] = useState(false);
 
   // =========================
   // EMAIL LOGIN INVITE FORM
   // =========================
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("sales");
+  const [inviteRole, setInviteRole] = useState("sales"); // ✅ can include installer (companion app)
   const [inviting, setInviting] = useState(false);
 
   async function refresh() {
@@ -89,31 +89,37 @@ export default function EmployeesAdmin() {
     if (!String(name || "").trim()) return alert("Name is required.");
     if (String(pin || "").trim().length < 3) return alert("PIN must be at least 3 digits.");
 
-    
-
     setSaving(true);
     try {
       await writeSession({ tenantId, shopId, posAccountId: posAccount?.id || null });
-      
+
+      // ✅ POS Accounts are ONLY cashier roles (sales/manager/owner)
+      const r = String(role || "sales").toLowerCase();
+      if (!["sales", "manager", "owner"].includes(r)) {
+        alert("POS employee role must be: sales, manager, owner");
+        return;
+      }
+
       await createPosAccount({
         tenantId,
         shopId,
         name,
         pin,
-        role,
+        role: r,
         active: true,
         createdBy: posAccount?.id || null,
       });
+
       setName("");
       setPin("");
       setRole("sales");
       await refresh();
     } catch (e) {
       console.error("[EmployeesAdmin]", {
-  code: e?.code,
-  message: e?.message,
-  details: e,
-});
+        code: e?.code,
+        message: e?.message,
+        details: e,
+      });
       alert(e?.message || String(e));
     } finally {
       setSaving(false);
@@ -157,17 +163,18 @@ export default function EmployeesAdmin() {
   async function onChangeRole(emp) {
     if (!canEdit) return alert("Not authorized.");
     const next = prompt(
-      `Set role for ${emp.name || emp.id} (sales / installer / manager / owner):`,
+      `Set POS role for ${emp.name || emp.id} (sales / manager / owner):`,
       emp.role || "sales"
     );
     if (next == null) return;
 
     const r = String(next).trim().toLowerCase();
-    if (!["sales", "installer", "manager", "owner"].includes(r)) {
-      return alert("Role must be one of: sales, installer, manager, owner");
+    if (!["sales", "manager", "owner"].includes(r)) {
+      return alert("Role must be one of: sales, manager, owner");
     }
 
-    if (emp.id === posAccount?.id && (r === "sales" || r === "installer")) {
+    // don’t let user demote the currently unlocked manager account while using it
+    if (emp.id === posAccount?.id && r === "sales") {
       return alert("You can’t demote the currently unlocked manager account while using it.");
     }
 
@@ -199,6 +206,8 @@ export default function EmployeesAdmin() {
   // =========================
   // EMAIL LOGIN INVITE (Firebase Auth)
   // Requires Cloud Function: inviteEmployeeLogin
+  //
+  // ✅ Keep installer here for COMPANION APP logins
   // =========================
   async function onInviteLogin() {
     if (!canEdit) return alert("Not authorized.");
@@ -244,10 +253,13 @@ export default function EmployeesAdmin() {
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 900, fontSize: 18 }}>Employees</div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
-            Create PINs and manage access for this shop
+            Create PINs and manage POS access for this shop
           </div>
           <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
             tenantId: {tenantId || "—"} • shopId: {shopId || "—"}
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
+            Note: Installers are managed under <b>Manager → Installers</b> (certs/pay). Installer email invites are for the companion app.
           </div>
         </div>
       </div>
@@ -264,7 +276,7 @@ export default function EmployeesAdmin() {
           </div>
         ) : (
           <>
-            {/* PIN employee creation (existing strategy) */}
+            {/* PIN employee creation (POS roles only) */}
             <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr auto", gap: 8 }}>
               <input
                 className="search-box"
@@ -280,7 +292,6 @@ export default function EmployeesAdmin() {
               />
               <select className="search-box" value={role} onChange={(e) => setRole(e.target.value)}>
                 <option value="sales">sales</option>
-                <option value="installer">installer</option>
                 <option value="manager">manager</option>
                 <option value="owner">owner</option>
               </select>
@@ -292,7 +303,7 @@ export default function EmployeesAdmin() {
             {/* EMAIL login invite */}
             <div style={{ marginTop: 12, fontWeight: 800 }}>Invite Email Login (optional)</div>
             <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
-              Sends a “Create Account” link for Firebase Auth login (email/password).
+              Sends a “Create Account” link for Firebase Auth login (email/password). Use <b>installer</b> for the companion app.
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr auto", gap: 8, marginTop: 8 }}>

@@ -13,6 +13,9 @@ import { SessionProvider, useSession } from "./session/SessionProvider";
 import TerminalSetup from "./pages/TerminalSetup";
 import LockScreen from "./pages/LockScreen";
 
+/* ✅ LOGOUT (ADDED) */
+import { logoutFirebase } from "./services/authService";
+
 /* ================= PAGES ================= */
 import HeldReceipts from "./pages/HeldReceipts";
 import Sell from "./pages/Sell";
@@ -508,6 +511,16 @@ function AppInner() {
     localStorage.setItem("theme", darkMode ? "dark" : "light");
   }, [darkMode]);
 
+  /* ✅ LOGOUT HANDLER (ADDED) */
+  const handleLogout = async () => {
+    try {
+      await logoutFirebase();
+      window.location.href = "/"; // clean reset so you can jump accounts
+    } catch (e) {
+      console.error("[logout] failed:", e);
+    }
+  };
+
   return (
     <div className="min-h-screen flex bg-slate-100 dark:bg-slate-950">
       {!hideLayout && (
@@ -552,6 +565,17 @@ function AppInner() {
               </NavLink>
             )}
           </nav>
+
+          {/* ✅ LOGOUT BUTTON (ADDED) */}
+          <div className="px-2 pb-3">
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center px-3 py-2 text-sm rounded-md transition-colors
+                         bg-slate-800/60 text-slate-200 hover:bg-slate-800 hover:text-white"
+            >
+              🚪 Log Out
+            </button>
+          </div>
 
           <div className="px-4 py-3 border-t border-slate-800 text-xs text-slate-400">
             Signed in as: {user?.email}
@@ -658,7 +682,7 @@ function AppInner() {
               element={<Settings user={user} darkMode={darkMode} setDarkMode={setDarkMode} />}
             />
             <Route path="/settings/receipt" element={<ReceiptEditor />} />
-            <Route path="/settings/installers" element={<Installers user={user} />} />
+            <Route path="/manager/installers" element={<Installers user={user} />} />
 
             {/* DEV */}
             <Route path="/dev" element={<DevMenu />} />

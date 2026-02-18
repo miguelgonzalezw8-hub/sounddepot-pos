@@ -27,14 +27,17 @@ export default function ManagerMenu() {
   const canSeeManagerTools = isManager;
   const canSeeEmployees = isManager;
 
+  // ✅ tile sizing so it wraps nicely (no sideways scroll)
+  const tileStyle = {
+    flex: "1 1 260px",
+    minWidth: 260,
+    maxWidth: 420,
+  };
+
   return (
     <div className="inventory-container">
       <div className="search-row" style={{ display: "flex", gap: 8 }}>
-        <button
-          className="search-box"
-          onClick={() => navigate(-1)}
-          style={{ width: 120 }}
-        >
+        <button className="search-box" onClick={() => navigate(-1)} style={{ width: 120 }}>
           ← Back
         </button>
         <div style={{ flex: 1 }}>
@@ -59,54 +62,66 @@ export default function ManagerMenu() {
             fontSize: 13,
           }}
         >
-          You’re not unlocked as a manager yet. Set your Manager PIN, then unlock
-          with a manager/owner POS account to access manager tools.
+          You’re not unlocked as a manager yet. Set your Manager PIN, then unlock with a manager/owner
+          POS account to access manager tools.
         </div>
       )}
 
-      <div className="inventory-tiles" style={{ marginTop: 10 }}>
+      {/* ✅ WRAP tiles so there is NEVER a horizontal scroll */}
+      <div
+        className="inventory-tiles"
+        style={{
+          marginTop: 10,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          alignItems: "stretch",
+        }}
+      >
         {/* Always visible (bootstrap path) */}
-        <div className="tile" onClick={() => navigate("/manager/security")}>
+        <div className="tile" style={tileStyle} onClick={() => navigate("/manager/security")}>
           <span className="tile-title">🔒 Manager PIN</span>
           <span className="tile-sub">Set / change PIN</span>
         </div>
 
         {/* EMPLOYEES */}
         {canSeeEmployees ? (
-          <div className="tile" onClick={() => navigate("/manager/employees")}>
+          <div className="tile" style={tileStyle} onClick={() => navigate("/manager/employees")}>
             <span className="tile-title">👥 Employees</span>
             <span className="tile-sub">Create PIN users for this shop</span>
           </div>
         ) : (
           <div
             className="tile"
+            style={{ ...tileStyle, opacity: 0.65 }}
             onClick={() =>
-              alert(
-                "Employees is manager-only. Unlock with a manager/owner POS account first."
-              )
+              alert("Employees is manager-only. Unlock with a manager/owner POS account first.")
             }
-            style={{ opacity: 0.65 }}
           >
             <span className="tile-title">👥 Employees</span>
             <span className="tile-sub">Locked — requires manager/owner access</span>
           </div>
         )}
 
+        {/* INSTALLERS */}
+        <div className="tile" style={tileStyle} onClick={() => navigate("/manager/installers")}>
+          <span className="tile-title">🛠 Installers</span>
+          <span className="tile-sub">Profiles, certs, pay</span>
+        </div>
+
         {/* BUNDLES */}
         {canSeeManagerTools ? (
-          <div className="tile" onClick={() => navigate("/manager/bundles")}>
+          <div className="tile" style={tileStyle} onClick={() => navigate("/manager/bundles")}>
             <span className="tile-title">📦 Bundles</span>
             <span className="tile-sub">Create vehicle bundles + bundle pricing</span>
           </div>
         ) : (
           <div
             className="tile"
+            style={{ ...tileStyle, opacity: 0.65 }}
             onClick={() =>
-              alert(
-                "Bundles is manager-only. Unlock with a manager/owner POS account first."
-              )
+              alert("Bundles is manager-only. Unlock with a manager/owner POS account first.")
             }
-            style={{ opacity: 0.65 }}
           >
             <span className="tile-title">📦 Bundles</span>
             <span className="tile-sub">Locked — requires manager/owner access</span>
@@ -115,19 +130,17 @@ export default function ManagerMenu() {
 
         {/* COUPONS */}
         {canSeeManagerTools ? (
-          <div className="tile" onClick={() => navigate("/manager/coupons")}>
+          <div className="tile" style={tileStyle} onClick={() => navigate("/manager/coupons")}>
             <span className="tile-title">🏷️ Coupons</span>
             <span className="tile-sub">Auto-generate codes + apply rules</span>
           </div>
         ) : (
           <div
             className="tile"
+            style={{ ...tileStyle, opacity: 0.65 }}
             onClick={() =>
-              alert(
-                "Coupons is manager-only. Unlock with a manager/owner POS account first."
-              )
+              alert("Coupons is manager-only. Unlock with a manager/owner POS account first.")
             }
-            style={{ opacity: 0.65 }}
           >
             <span className="tile-title">🏷️ Coupons</span>
             <span className="tile-sub">Locked — requires manager/owner access</span>
@@ -136,19 +149,17 @@ export default function ManagerMenu() {
 
         {/* LABOR */}
         {canSeeManagerTools ? (
-          <div className="tile" onClick={() => navigate("/manager/labor")}>
+          <div className="tile" style={tileStyle} onClick={() => navigate("/manager/labor")}>
             <span className="tile-title">🛠️ Labor</span>
             <span className="tile-sub">Configure labor charging (Option 2)</span>
           </div>
         ) : (
           <div
             className="tile"
+            style={{ ...tileStyle, opacity: 0.65 }}
             onClick={() =>
-              alert(
-                "Labor is manager-only. Unlock with a manager/owner POS account first."
-              )
+              alert("Labor is manager-only. Unlock with a manager/owner POS account first.")
             }
-            style={{ opacity: 0.65 }}
           >
             <span className="tile-title">🛠️ Labor</span>
             <span className="tile-sub">Locked — requires manager/owner access</span>

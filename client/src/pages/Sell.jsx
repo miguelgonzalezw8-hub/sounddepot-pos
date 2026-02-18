@@ -29,7 +29,8 @@ function nnum(v, fallback = 0) {
 export default function Sell() {
   const navigate = useNavigate();
 
-  const { terminal, booting, isUnlocked, devMode } = useSession();
+  // ✅ added posAccount + firebaseUser so we can default commission selection
+  const { terminal, booting, isUnlocked, devMode, posAccount, firebaseUser } = useSession();
   const tenantId = terminal?.tenantId;
   const shopId = terminal?.shopId;
 
@@ -58,6 +59,10 @@ export default function Sell() {
   const [laborMode, setLaborMode] = useState("catalog"); // "catalog" | "sku"
   const [laborSkuProductId, setLaborSkuProductId] = useState("");
   const [laborCatalog, setLaborCatalog] = useState([]);
+
+  // ✅ Employees (PIN accounts) for commission dropdown (ADDED)
+  const [employees, setEmployees] = useState([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
 
   /* ================= ADD CUSTOMER (RESTORED) ================= */
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
@@ -127,6 +132,75 @@ export default function Sell() {
       trim: "",
     });
   }, [selectedVehicle]);
+
+  /* ================= LOAD EMPLOYEES FOR COMMISSION (ADDED) ================= */
+  useEffect(() => {
+    if (booting) return;
+    if (!devMode && !isUnlocked) return;
+    if (!tenantId || !shopId) return;
+
+    // IMPORTANT: This assumes your PIN accounts live in "posAccounts"
+    // (matches your unlockWithPin concept). If your collection is named differently,
+    // change "posAccounts" to that name.
+    const qy = query(
+      collection(db, "posAccounts"),
+      where("tenantId", "==", tenantId),
+      where("shopId", "==", shopId)
+    );
+
+    return onSnapshot(
+      qy,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+        // filter active if field exists; otherwise keep all
+        const activeRows = rows
+  .filter((r) => r.active !== false)
+  // ✅ installers are NOT eligible for sales commission
+  .filter((r) => String(r.role || "").toLowerCase() !== "installer");
+
+
+        // sort client-side to avoid orderBy + composite index headaches
+        activeRows.sort((a, b) => {
+          const an = String(a.name || a.displayName || a.email || a.id || "").toLowerCase();
+          const bn = String(b.name || b.displayName || b.email || b.id || "").toLowerCase();
+          return an.localeCompare(bn);
+        });
+
+        setEmployees(activeRows);
+
+
+        // default selection
+        setSelectedEmployeeId((cur) => {
+  // if current selection is no longer valid, pick PIN user or first eligible employee
+  const stillValid = cur && activeRows.some((r) => r.id === cur);
+  if (stillValid) return cur;
+
+  if (posAccount?.id && activeRows.some((r) => r.id === posAccount.id)) return posAccount.id;
+  return activeRows[0]?.id || "";
+});
+      },
+      (err) => {
+        console.error("[Sell employees] permission/index error:", err);
+        setEmployees([]);
+      }
+    );
+  }, [booting, isUnlocked, devMode, tenantId, shopId, posAccount?.id]);
+
+  const selectedEmployee = useMemo(() => {
+    if (!selectedEmployeeId) return null;
+    return employees.find((e) => e.id === selectedEmployeeId) || null;
+  }, [employees, selectedEmployeeId]);
+
+  const commissionEmployeeId =
+    selectedEmployeeId || posAccount?.id || firebaseUser?.uid || null;
+
+  const commissionEmployeeName =
+    selectedEmployee?.name ||
+    selectedEmployee?.displayName ||
+    selectedEmployee?.email ||
+    (posAccount?.id ? "PIN User" : firebaseUser?.email) ||
+    "";
 
   /* ================= LOAD SHOP LABOR SETTINGS ================= */
   useEffect(() => {
@@ -580,6 +654,11 @@ export default function Sell() {
       subtotal,
       tax,
       total,
+
+      // ✅ commission attribution (ADDED)
+      commissionEmployeeId,
+      commissionEmployeeName,
+
       status: "held",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -662,6 +741,10 @@ export default function Sell() {
       vehicle: selectedVehicle || null,
       installerId: installer?.id || null,
       installAt: installAt || null,
+
+      // ✅ commission attribution (ADDED)
+      commissionEmployeeId,
+      commissionEmployeeName,
 
       payment,
       subtotal: totals.subtotal,
@@ -788,6 +871,39 @@ export default function Sell() {
 
       {/* RIGHT */}
       <div className="bg-white p-4 rounded-xl shadow border flex flex-col">
+        {/* ✅ COMMISSION EMPLOYEE (ADDED) */}
+        <div className="flex items-center gap-2 mb-2">
+          <div className="text-sm font-semibold whitespace-nowrap">
+            Commission Employee:
+          </div>
+
+          <select
+            value={selectedEmployeeId}
+            onChange={(e) => setSelectedEmployeeId(e.target.value)}
+            className="h-10 px-2 rounded-lg border flex-1"
+          >
+            {employees.length === 0 ? (
+              <option value="">No employees found</option>
+            ) : (
+              employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name || e.displayName || e.email || e.id}
+                </option>
+              ))
+            )}
+          </select>
+
+          {!!posAccount?.id && (
+            <button
+              type="button"
+              onClick={() => setSelectedEmployeeId(posAccount.id)}
+              className="px-3 h-10 rounded-lg border bg-white hover:bg-slate-50 text-sm font-semibold whitespace-nowrap"
+            >
+              Use PIN
+            </button>
+          )}
+        </div>
+
         {/* CUSTOMER + HELD */}
         <div className="flex gap-2 mb-2">
           <div className="flex-1">
@@ -1137,6 +1253,10 @@ export default function Sell() {
               subtotal: totals.subtotal,
               tax: totals.tax,
               total: totals.total,
+
+              // ✅ include attribution on receipt too (ADDED)
+              commissionEmployeeId,
+              commissionEmployeeName,
             };
 
             localStorage.setItem("currentReceipt", JSON.stringify(receipt));
@@ -1154,8 +1274,7 @@ export default function Sell() {
             alert("Checkout failed. Inventory was NOT finalized. See console for details.");
           }
         }}
-      >
-      </CheckoutModal>
+      ></CheckoutModal>
     </div>
   );
 }

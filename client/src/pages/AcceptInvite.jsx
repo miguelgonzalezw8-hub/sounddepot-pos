@@ -26,6 +26,10 @@ export default function AcceptInvite() {
     return String(em || "").trim().toLowerCase();
   }, [invite]);
 
+  const invitedRole = useMemo(() => {
+    return String(invite?.role || invite?.Role || "").trim().toLowerCase();
+  }, [invite]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -130,11 +134,15 @@ export default function AcceptInvite() {
         {status === "needsSignup" ? (
           <>
             <div style={{ marginTop: 10, opacity: 0.85 }}>
-              Create your password to activate this owner account.
+              Create a password to activate this account.
             </div>
 
             <div style={{ marginTop: 10, fontSize: 13, opacity: 0.8 }}>
               Email: <b>{invitedEmail || "—"}</b>
+            </div>
+
+            <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+              Role: <b>{invitedRole || "—"}</b>
             </div>
 
             <form onSubmit={onCreateAccount} style={{ marginTop: 14 }}>
@@ -206,4 +214,3 @@ export default function AcceptInvite() {
     </div>
   );
 }
-

@@ -57,14 +57,6 @@ export default function Settings({ darkMode, setDarkMode }) {
           🧾 Receipt Editor
         </Link>
 
-        {/* ✅ NEW: INSTALLERS */}
-        <Link
-          to="/settings/installers"
-          className="block p-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold transition"
-        >
-          👨‍🔧 Installers
-        </Link>
-
       </div>
     </div>
   );
