@@ -1,5 +1,5 @@
 {
-  "name": "sounddepot-pos-desktop",
+  "name": "volterahq-pos-desktop",
   "private": true,
   "version": "0.0.1",
   "main": "electron/main.cjs",
@@ -19,25 +19,41 @@
     "electron-builder": "^26.7.0",
     "wait-on": "^9.0.4"
   },
-  "build": {
-    "appId": "com.sounddepot.pos",
-    "productName": "SoundDepot POS",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "electron/**/*",
-      "client/dist/**/*",
-      "package.json"
-    ],
-    "win": {
-      "target": "nsis",
-      "signAndEditExecutable": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": true,
-      "allowToChangeInstallationDirectory": true
-    }
+"build": {
+  "appId": "com.volterahq.pos",
+  "productName": "VolteraHQ",
+  "executableName": "VolteraHQ",
+  "artifactName": "${productName} Setup ${version}.${ext}",
+
+  "directories": {
+    "output": "release2"
+  },
+
+  "files": [
+    "electron/**/*",
+    "client/dist/**/*",
+    "package.json"
+  ],
+
+  "extraResources": [
+    { "from": "electron/splash.html", "to": "splash.html" },
+    { "from": "electron/assets", "to": "assets" }
+  ],
+
+  "win": {
+    "target": "nsis",
+    "icon": "electron/assets/icon.ico",
+    "signAndEditExecutable": true
+  },
+
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "electron/assets/icon.ico",
+    "uninstallerIcon": "electron/assets/icon.ico",
+    "shortcutName": "VolteraHQ"
   }
+}
+
 }
