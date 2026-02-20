@@ -60,20 +60,24 @@ function Btn({ children, onClick, disabled, variant = "primary", type = "button"
   const styles =
     variant === "primary"
       ? {
-          background: disabled ? "#94a3b8" : "#0f172a",
+          background: disabled
+            ? "hsl(var(--brand-primary) / 0.4)"
+            : "hsl(var(--brand-primary))",
           color: "white",
           border: "1px solid transparent",
         }
       : variant === "ghost"
       ? {
           background: "transparent",
-          color: "#0f172a",
-          border: "1px solid #e5e7eb",
+          color: "hsl(var(--brand-primary))",
+          border: "1px solid hsl(var(--brand-primary) / 0.3)",
         }
       : {
-          background: disabled ? "#e5e7eb" : "#f1f5f9",
-          color: "#0f172a",
-          border: "1px solid #e5e7eb",
+          background: disabled
+            ? "hsl(var(--brand-accent) / 0.3)"
+            : "hsl(var(--brand-accent))",
+          color: "white",
+          border: "1px solid transparent",
         };
 
   return (
@@ -87,6 +91,7 @@ function Btn({ children, onClick, disabled, variant = "primary", type = "button"
         borderRadius: 12,
         fontWeight: 900,
         cursor: disabled ? "not-allowed" : "pointer",
+        transition: "all 0.15s ease",
         ...styles,
       }}
     >
@@ -94,6 +99,7 @@ function Btn({ children, onClick, disabled, variant = "primary", type = "button"
     </button>
   );
 }
+
 
 const inputStyle = {
   width: "100%",
