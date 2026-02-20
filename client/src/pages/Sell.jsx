@@ -1102,7 +1102,7 @@ export default function Sell() {
             <button
               disabled={!cart.length}
               onClick={() => holdReceipt(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold"
+              className="bg-brand-primary hover:bg-brand-primary/90 text-white py-2 rounded font-semibold"
             >
               Print
             </button>
@@ -1111,7 +1111,7 @@ export default function Sell() {
           <button
             disabled={!cart.length}
             onClick={() => setCheckoutOpen(true)}
-            className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold"
+            className="w-full bg-brand-accent hover:bg-brand-accent/90 text-white py-3 rounded-lg font-semibold"
           >
             Checkout
           </button>
@@ -1217,7 +1217,7 @@ export default function Sell() {
                 Cancel
               </button>
               <button
-                className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                className="px-4 py-2 rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-semibold"
                 onClick={createCustomerQuick}
               >
                 Save Customer

@@ -28,7 +28,7 @@ export default function Settings({ darkMode, setDarkMode }) {
           {/* Toggle pill */}
           <span
             className={`inline-flex h-5 w-10 items-center rounded-full transition ${
-              darkMode ? "bg-blue-600" : "bg-slate-400"
+              darkMode ? "bg-brand-primary" : "bg-slate-400"
             }`}
           >
             <span
@@ -52,7 +52,7 @@ export default function Settings({ darkMode, setDarkMode }) {
         {/* ✅ KEEP RECEIPT EDITOR */}
         <Link
           to="/settings/receipt"
-          className="block p-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold transition"
+          className="block p-4 rounded-xl bg-brand-primary hover:bg-brand-primary/90 text-white font-semibold transition"
         >
           🧾 Receipt Editor
         </Link>

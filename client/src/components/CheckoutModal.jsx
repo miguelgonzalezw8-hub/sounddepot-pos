@@ -399,7 +399,7 @@ export default function CheckoutModal({
                   if (type !== "Credit") setCardType(null);
                 }}
                 className={`py-2 rounded-lg text-sm transition ${
-                  paymentType === type ? "bg-blue-600 text-white" : "bg-gray-100 hover:bg-gray-200"
+                  paymentType === type ? "bg-brand-primary text-white" : "bg-gray-100 hover:bg-gray-200"
                 }`}
               >
                 {type === "Cash" && "💵 "}
@@ -424,7 +424,7 @@ export default function CheckoutModal({
                   key={c.type}
                   onClick={() => setCardType(c.type)}
                   className={`border rounded-lg p-3 flex items-center gap-3 transition ${
-                    cardType === c.type ? "ring-2 ring-blue-600 bg-blue-50" : "bg-white hover:bg-gray-50"
+                    cardType === c.type ? "ring-2 ring-brand-primary bg-brand-primary/10" : "bg-white hover:bg-gray-50"
                   }`}
                 >
                   <img src={c.img} alt={c.type} className="h-7 w-auto" />
@@ -530,7 +530,7 @@ export default function CheckoutModal({
         <button
           onClick={completePayment}
           disabled={!paymentType || (paymentType === "Credit" && !cardType)}
-          className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold disabled:opacity-60"
+          className="w-full bg-brand-accent text-white py-3 rounded-lg font-semibold disabled:opacity-60"
         >
           ✅ Complete Payment
         </button>

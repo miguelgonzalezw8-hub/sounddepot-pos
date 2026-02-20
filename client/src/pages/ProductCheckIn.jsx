@@ -385,7 +385,7 @@ export default function ProductCheckIn() {
                 <button
                   onClick={addSerial}
                   disabled={saving}
-                  className="px-4 h-11 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold disabled:opacity-60"
+                  className="px-4 h-11 rounded-lg bg-brand-primary hover:bg-brand-primary/90 text-white font-semibold disabled:opacity-60"
                 >
                   Add
                 </button>
@@ -454,7 +454,7 @@ export default function ProductCheckIn() {
             <button
               onClick={submitCheckIn}
               disabled={saving}
-              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-60"
+              className="px-4 py-2 rounded-lg bg-brand-accent hover:bg-brand-accent/90 text-white font-semibold disabled:opacity-60"
             >
               {saving ? "Saving..." : "Check In"}
             </button>

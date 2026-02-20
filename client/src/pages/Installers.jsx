@@ -279,7 +279,7 @@ export default function Installers({ user }) {
 
         <button
           onClick={saveInstaller}
-          className="bg-green-600 text-white px-4 py-2 rounded font-semibold"
+          className="bg-brand-accent text-white px-4 py-2 rounded font-semibold"
           disabled={!canUse}
           type="button"
         >

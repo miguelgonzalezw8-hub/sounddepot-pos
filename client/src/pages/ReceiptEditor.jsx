@@ -211,7 +211,7 @@ export default function ReceiptEditor() {
         <span className="text-sm text-gray-500">{savedMsg}</span>
         <button
           onClick={saveTemplate}
-          className="bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold"
+          className="bg-brand-primary hover:bg-brand-primary/90 text-white px-6 py-2 rounded-lg font-semibold"
         >
           💾 Save Template
         </button>

@@ -8,6 +8,7 @@ import ManagerCoupons from "./pages/ManagerCoupons";
 import ManagerLabor from "./pages/ManagerLabor";
 import { collection, query, where, orderBy, limit, onSnapshot, Timestamp,} from "firebase/firestore";
 
+
 /* ================= SHOPMONKEY-STYLE TERMINAL GATE ================= */
 import { SessionProvider, useSession } from "./session/SessionProvider";
 import TerminalSetup from "./pages/TerminalSetup";
