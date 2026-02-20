@@ -42,7 +42,7 @@ export default function Login() {
           onChange={(e) => setPassword(e.target.value)}
         />
 
-        <button className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded">
+         <button className="w-full bg-brand-primary hover:bg-brand-primary/90 text-white py-2 rounded">
           Sign In
         </button>
       </form>
