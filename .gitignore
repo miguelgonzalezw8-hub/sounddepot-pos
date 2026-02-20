@@ -73,6 +73,7 @@ SendGrid*
 
 # Electron build output
 release/
+release2/
 dist/
 win-unpacked/
 *.exe
