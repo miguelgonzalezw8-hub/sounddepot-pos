@@ -18,3 +18,10 @@ export function isComponentCompatible(vehicle, product) {
 
   return midMatch && tweeterMatch;
 }
+
+
+
+
+
+
+

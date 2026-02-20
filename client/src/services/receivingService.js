@@ -77,3 +77,10 @@ async function updateOrderStatus(orderId) {
     status: hasBackorders ? "PARTIAL" : "FULFILLED"
   });
 }
+
+
+
+
+
+
+

@@ -872,3 +872,10 @@ export default function ManagerCoupons() {
     </div>
   );
 }
+
+
+
+
+
+
+

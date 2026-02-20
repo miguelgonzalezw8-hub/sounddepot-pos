@@ -12,3 +12,10 @@ export async function inviteUser({ email, tenantId, role, name }) {
   console.log("[inviteUserClient] success", res.data);
   return res.data;
 }
+
+
+
+
+
+
+

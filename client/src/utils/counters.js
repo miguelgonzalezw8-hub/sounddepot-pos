@@ -34,3 +34,10 @@ export function formatOrderNumber(n) {
   const padded = String(num).padStart(6, "0");
   return `SD-${padded}`;
 }
+
+
+
+
+
+
+

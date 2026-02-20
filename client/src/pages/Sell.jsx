@@ -870,7 +870,7 @@ export default function Sell() {
       />
 
       {/* RIGHT */}
-      <div className="bg-white p-4 rounded-xl shadow border flex flex-col">
+      <div className="bg-app-panel dark:bg-app-panel p-4 rounded-xl shadow border flex flex-col">
         {/* ✅ COMMISSION EMPLOYEE (ADDED) */}
         <div className="flex items-center gap-2 mb-2">
           <div className="text-sm font-semibold whitespace-nowrap">
@@ -897,7 +897,7 @@ export default function Sell() {
             <button
               type="button"
               onClick={() => setSelectedEmployeeId(posAccount.id)}
-              className="px-3 h-10 rounded-lg border bg-white hover:bg-slate-50 text-sm font-semibold whitespace-nowrap"
+              className="px-3 h-10 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text hover:bg-slate-50 dark:hover:bg-white/10 text-sm font-semibold whitespace-nowrap"
             >
               Use PIN
             </button>
@@ -920,14 +920,14 @@ export default function Sell() {
                   <button
                     type="button"
                     onClick={() => setAddCustomerOpen(true)}
-                    className="px-3 h-10 rounded-lg border bg-white hover:bg-slate-50 text-sm font-semibold whitespace-nowrap"
+                    className="px-3 h-10 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text hover:bg-slate-50 dark:hover:bg-white/10 text-sm font-semibold whitespace-nowrap"
                   >
                     + Add Customer
                   </button>
                 </div>
 
                 {customerSearch && (
-                  <div className="border rounded-lg mt-1 max-h-40 overflow-y-auto bg-white">
+                  <div className="border rounded-lg mt-1 max-h-40 overflow-y-auto bg-app-panel dark:bg-app-panel">
                     {customers
                       .filter((c) =>
                         `${c.firstName || ""} ${c.lastName || ""} ${c.companyName || ""} ${
@@ -1121,7 +1121,7 @@ export default function Sell() {
       {/* ADD CUSTOMER MODAL */}
       {addCustomerOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="w-[720px] max-w-[94vw] bg-white rounded-xl shadow-xl border p-5">
+          <div className="w-[720px] max-w-[94vw] bg-app-panel dark:bg-app-panel rounded-xl shadow-xl border p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-lg font-bold">Add Customer</div>
@@ -1130,7 +1130,7 @@ export default function Sell() {
                 </div>
               </div>
               <button
-                className="px-3 py-2 rounded-lg border hover:bg-slate-50"
+                className="px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-white/10"
                 onClick={() => setAddCustomerOpen(false)}
               >
                 ✕
@@ -1211,7 +1211,7 @@ export default function Sell() {
 
             <div className="mt-5 flex justify-end gap-2">
               <button
-                className="px-4 py-2 rounded-lg border hover:bg-slate-50"
+                className="px-4 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-white/10"
                 onClick={() => setAddCustomerOpen(false)}
               >
                 Cancel
@@ -1278,3 +1278,11 @@ export default function Sell() {
     </div>
   );
 }
+
+
+
+
+
+
+
+

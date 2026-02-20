@@ -185,3 +185,10 @@ export async function checkInProduct({ db, productId, qtyReceived, createdBy }) 
 
   return result;
 }
+
+
+
+
+
+
+

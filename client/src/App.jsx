@@ -7,6 +7,7 @@ import ManagerBundleEditor from "./pages/ManagerBundleEditor";
 import ManagerCoupons from "./pages/ManagerCoupons";
 import ManagerLabor from "./pages/ManagerLabor";
 import { collection, query, where, orderBy, limit, onSnapshot, Timestamp,} from "firebase/firestore";
+import logo from "./assets/logo.png";
 
 
 /* ================= SHOPMONKEY-STYLE TERMINAL GATE ================= */
@@ -149,11 +150,11 @@ function SimpleBarList({ rows = [] }) {
         return (
           <div key={r.label} className="space-y-1">
             <div className="flex justify-between text-sm">
-              <span className="text-slate-700 dark:text-slate-200">{r.label}</span>
-              <span className="text-slate-600 dark:text-slate-300">{formatMoney(r.value)}</span>
+              <span className="text-slate-700 dark:text-white/80">{r.label}</span>
+              <span className="text-slate-600 dark:text-white/70">{formatMoney(r.value)}</span>
             </div>
             <div className="h-2 rounded bg-slate-200 dark:bg-slate-800 overflow-hidden">
-              <div className="h-2 bg-slate-900 dark:bg-slate-100" style={{ width: `${pct}%` }} />
+              <div className="h-2 bg-brand-primary dark:bg-slate-100" style={{ width: `${pct}%` }} />
             </div>
           </div>
         );
@@ -309,12 +310,12 @@ function Dashboard() {
   return (
     <div className="inventory-container">
       <div className="search-row flex items-center justify-between">
-        <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">Dashboard</div>
+        <div className="text-2xl font-bold text-app-text dark:text-app-text">Dashboard</div>
 
         <button
           onClick={() => navigate("/search")}
-          className="px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold"
-        >
+          className="px-4 py-2 rounded-lg bg-brand-primary text-white text-sm font-semibold
+           hover:bg-brand-primary/90 transition-colors shadow-md shadow-brand-primary/20" >
           🔎 Master Search
         </button>
       </div>
@@ -349,8 +350,8 @@ function Dashboard() {
       </div>
 
       <div className="mt-6 grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
-          <div className="text-sm font-bold text-slate-700 dark:text-slate-200">Today (DTD)</div>
+        <div className="bg-app-panel dark:bg-app-panel dark:bg-[#0b1220] border rounded-xl shadow-sm p-4">
+          <div className="text-sm font-bold text-slate-700 dark:text-white/80">Today (DTD)</div>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div>
               <div className="text-xs text-slate-500">Sales</div>
@@ -371,8 +372,8 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
-          <div className="text-sm font-bold text-slate-700 dark:text-slate-200">Month-to-date (MTD)</div>
+        <div className="bg-app-panel dark:bg-app-panel dark:bg-[#0b1220] border rounded-xl shadow-sm p-4">
+          <div className="text-sm font-bold text-slate-700 dark:text-white/80">Month-to-date (MTD)</div>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div>
               <div className="text-xs text-slate-500">Sales</div>
@@ -393,8 +394,8 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
-          <div className="text-sm font-bold text-slate-700 dark:text-slate-200">Year-to-date (YTD)</div>
+        <div className="bg-app-panel dark:bg-app-panel dark:bg-[#0b1220] border rounded-xl shadow-sm p-4">
+          <div className="text-sm font-bold text-slate-700 dark:text-white/80">Year-to-date (YTD)</div>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div>
               <div className="text-xs text-slate-500">Sales</div>
@@ -415,25 +416,25 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4 xl:col-span-2">
+        <div className="bg-app-panel dark:bg-app-panel dark:bg-[#0b1220] border rounded-xl shadow-sm p-4 xl:col-span-2">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-bold text-slate-700 dark:text-slate-200">
+            <div className="text-sm font-bold text-slate-700 dark:text-white/80">
               Sales Over Time (Last 30 Days)
             </div>
             <button
               onClick={() => navigate("/reports/sales-summary")}
-              className="text-sm font-semibold text-slate-700 dark:text-slate-200 hover:underline"
+              className="text-sm font-semibold text-slate-700 dark:text-white/80 hover:underline"
             >
               View report →
             </button>
           </div>
-          <div className="mt-2 text-slate-900 dark:text-slate-100">
+          <div className="mt-2 text-app-text dark:text-app-text">
             <SimpleLineChart points={salesOverTime30} />
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
-          <div className="text-sm font-bold text-slate-700 dark:text-slate-200">Sales per Employee (MTD)</div>
+        <div className="bg-app-panel dark:bg-app-panel dark:bg-[#0b1220] border rounded-xl shadow-sm p-4">
+          <div className="text-sm font-bold text-slate-700 dark:text-white/80">Sales per Employee (MTD)</div>
           <div className="mt-3">
             {salesPerEmployeeMTD.length === 0 ? (
               <div className="text-sm text-slate-500">No sales yet this month.</div>
@@ -523,13 +524,26 @@ function AppInner() {
   };
 
   return (
-    <div className="min-h-screen flex bg-slate-100 dark:bg-slate-950">
+    <div className="h-screen flex bg-slate-100 dark:bg-app-bg overflow-hidden">
       {!hideLayout && (
-        <aside className="w-60 bg-slate-900 text-slate-100 flex flex-col">
-          <div className="px-4 py-5 border-b border-slate-800">
-            <div className="text-lg font-semibold tracking-tight">Sound Depot POS</div>
-            <div className="text-xs text-slate-400">Car Audio · Fitment · Sales</div>
-          </div>
+        <aside className="w-60 bg-gradient-to-b from-[#0b1220] to-[#0e1626] text-white flex flex-col">
+          <div className="px-4 py-5 border-b border-slate-800 flex items-center gap-3">
+  <img
+    src={logo}
+    alt="Voltera Logo"
+    className="h-9 w-9 object-contain"
+  />
+
+  <div>
+    <div className="text-xl font-bold tracking-tight text-white">
+      Voltera
+    </div>
+    <div className="text-xs text-slate-500">
+      Car Audio · Fitment · Sales
+    </div>
+  </div>
+</div>
+
 
           <nav className="flex-1 px-2 py-4 space-y-1">
             {navItems.map((item) => (
@@ -539,10 +553,10 @@ function AppInner() {
                 end={item.to === "/"}
                 className={({ isActive }) =>
                   [
-                    "flex items-center px-3 py-2 text-sm rounded-md transition-colors",
+                    "flex items-center px-3 py-2 text-sm rounded-md transition-colors border-l-4 border-transparent",
                     isActive
-                      ? "bg-slate-800 text-white"
-                      : "text-slate-300 hover:bg-slate-800/60 hover:text-white",
+                    ? "bg-brand-primary/15 text-white border-l-4 border-brand-accent"
+                    : "text-white/70 hover:bg-white/10 hover:text-white",
                   ].join(" ")
                 }
               >
@@ -558,7 +572,7 @@ function AppInner() {
                     "flex items-center px-3 py-2 text-sm rounded-md transition-colors",
                     isActive
                       ? "bg-slate-800 text-white"
-                      : "text-slate-300 hover:bg-slate-800/60 hover:text-white",
+                      : "text-white/70 hover:bg-white/10 hover:text-white",
                   ].join(" ")
                 }
               >
@@ -572,8 +586,7 @@ function AppInner() {
             <button
               onClick={handleLogout}
               className="w-full flex items-center justify-center px-3 py-2 text-sm rounded-md transition-colors
-                         bg-slate-800/60 text-slate-200 hover:bg-slate-800 hover:text-white"
-            >
+           bg-white/5 text-white/80 hover:bg-white/10 hover:text-white border border-white/10">
               🚪 Log Out
             </button>
           </div>
@@ -589,8 +602,8 @@ function AppInner() {
 
       <div className="flex-1 flex flex-col">
         {!hideLayout && (
-          <header className="h-14 flex items-center px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+          <header className="h-14 flex items-center px-6 border-b border-app-border dark:border-app-border border-app-border bg-app-panel dark:bg-app-panel text-app-text dark:bg-[#0b1220]">
+            <span className="text-sm font-medium text-slate-700 dark:text-white/80">
               {location.pathname === "/sell"
                 ? "Sell"
                 : location.pathname === "/inventory"
@@ -614,7 +627,7 @@ function AppInner() {
           </header>
         )}
 
-        <main className={`flex-1 ${hideLayout ? "" : "p-6"}`}>
+        <main className={`flex-1 overflow-y-auto ${hideLayout ? "" : "p-6"}`}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/sell" element={<Sell />} />
@@ -770,3 +783,12 @@ export default function App() {
     </SessionProvider>
   );
 }
+
+
+
+
+
+
+
+
+

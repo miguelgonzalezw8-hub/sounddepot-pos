@@ -256,7 +256,7 @@ export default function ManagerLabor() {
       </div>
 
       {/* SETTINGS */}
-      <div className="bg-white p-4 rounded-xl shadow border" style={{ marginTop: 10 }}>
+      <div className="bg-app-panel dark:bg-app-panel p-4 rounded-xl shadow border" style={{ marginTop: 10 }}>
         <div style={{ fontWeight: 900, marginBottom: 6 }}>Labor Mode</div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -331,7 +331,7 @@ export default function ManagerLabor() {
       </div>
 
       {/* CATALOG */}
-      <div className="bg-white p-4 rounded-xl shadow border" style={{ marginTop: 12 }}>
+      <div className="bg-app-panel dark:bg-app-panel p-4 rounded-xl shadow border" style={{ marginTop: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
           <div>
             <div style={{ fontWeight: 900 }}>Labor Catalog</div>
@@ -410,7 +410,7 @@ export default function ManagerLabor() {
 
       {/* EDITOR (simple inline panel) */}
       {editing && (
-        <div className="bg-white p-4 rounded-xl shadow border" style={{ marginTop: 12 }}>
+        <div className="bg-app-panel dark:bg-app-panel p-4 rounded-xl shadow border" style={{ marginTop: 12 }}>
           <div style={{ fontWeight: 900, marginBottom: 6 }}>{editing.id ? "Edit Labor" : "New Labor"}</div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -517,3 +517,10 @@ export default function ManagerLabor() {
     </div>
   );
 }
+
+
+
+
+
+
+

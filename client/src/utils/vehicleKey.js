@@ -18,3 +18,10 @@ export function makeVehicleKey({ year, make, model, trim }) {
   if (!y || !mk || !md) return null;
   return `${y}|${mk}|${md}|${tr}`;
 }
+
+
+
+
+
+
+

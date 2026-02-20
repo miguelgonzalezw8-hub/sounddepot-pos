@@ -131,7 +131,7 @@ export default function Installers({ user }) {
       )}
 
       {/* ================= ADD INSTALLER ================= */}
-      <div className="bg-white border rounded-lg p-4 space-y-4">
+      <div className="bg-app-panel dark:bg-app-panel border rounded-lg p-4 space-y-4">
         <h2 className="font-semibold text-lg">Add Installer</h2>
 
         <input
@@ -154,7 +154,7 @@ export default function Installers({ user }) {
                   )
                 }
                 className={`px-3 py-1 rounded border text-sm ${
-                  types.includes(t) ? "bg-blue-600 text-white" : "bg-white"
+                  types.includes(t) ? "bg-blue-600 text-white" : "bg-app-panel dark:bg-app-panel"
                 }`}
                 type="button"
               >
@@ -288,7 +288,7 @@ export default function Installers({ user }) {
       </div>
 
       {/* ================= LIST ================= */}
-      <div className="bg-white border rounded-lg p-4">
+      <div className="bg-app-panel dark:bg-app-panel border rounded-lg p-4">
         <h2 className="font-semibold mb-3">Installers ({installers.length})</h2>
 
         <div className="space-y-2 text-sm">
@@ -307,3 +307,10 @@ export default function Installers({ user }) {
     </div>
   );
 }
+
+
+
+
+
+
+

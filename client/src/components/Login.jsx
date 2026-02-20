@@ -20,7 +20,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <form
         onSubmit={handleLogin}
-        className="w-80 p-6 bg-slate-900 rounded-lg space-y-4"
+        className="w-80 p-6 bg-brand-primary rounded-lg space-y-4"
       >
         <h1 className="text-lg font-semibold text-slate-100">Sign In</h1>
 
@@ -49,3 +49,10 @@ export default function Login() {
     </div>
   );
 }
+
+
+
+
+
+
+

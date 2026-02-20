@@ -375,7 +375,7 @@ export default function CheckoutModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40">
-      <div className="relative bg-white w-full max-w-md rounded-xl p-5 space-y-4 shadow-xl">
+      <div className="relative bg-app-panel dark:bg-app-panel w-full max-w-md rounded-xl p-5 space-y-4 shadow-xl">
         {/* CLOSE */}
         <button
           onClick={onClose}
@@ -424,7 +424,7 @@ export default function CheckoutModal({
                   key={c.type}
                   onClick={() => setCardType(c.type)}
                   className={`border rounded-lg p-3 flex items-center gap-3 transition ${
-                    cardType === c.type ? "ring-2 ring-brand-primary bg-brand-primary/10" : "bg-white hover:bg-gray-50"
+                    cardType === c.type ? "ring-2 ring-brand-primary bg-brand-primary/10" : "bg-app-panel dark:bg-app-panel hover:bg-gray-50"
                   }`}
                 >
                   <img src={c.img} alt={c.type} className="h-7 w-auto" />
@@ -546,3 +546,10 @@ export default function CheckoutModal({
     </div>
   );
 }
+
+
+
+
+
+
+

@@ -4,16 +4,16 @@ export default function Settings({ darkMode, setDarkMode }) {
   return (
     <div className="p-6 space-y-6 max-w-xl">
 
-      <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+      <h1 className="text-2xl font-bold text-app-text dark:text-app-text">
         Settings
       </h1>
 
       {/* ======================
           APPEARANCE / DARK MODE
       ====================== */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 space-y-3">
+      <div className="rounded-xl border border-app-border dark:border-app-border border-app-border bg-app-panel dark:bg-app-panel text-app-text dark:bg-brand-primary p-5 space-y-3">
 
-        <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+        <h2 className="text-lg font-semibold text-app-text dark:text-app-text">
           Appearance
         </h2>
 
@@ -23,7 +23,7 @@ export default function Settings({ darkMode, setDarkMode }) {
 
         <button
           onClick={() => setDarkMode(!darkMode)}
-          className="flex items-center gap-3 px-4 py-2 rounded-full border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-100 transition"
+          className="flex items-center gap-3 px-4 py-2 rounded-full border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-app-text transition"
         >
           {/* Toggle pill */}
           <span
@@ -32,7 +32,7 @@ export default function Settings({ darkMode, setDarkMode }) {
             }`}
           >
             <span
-              className={`h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
+              className={`h-4 w-4 rounded-full bg-app-panel dark:bg-app-panel shadow transform transition-transform ${
                 darkMode ? "translate-x-5" : "translate-x-1"
               }`}
             />
@@ -61,3 +61,10 @@ export default function Settings({ darkMode, setDarkMode }) {
     </div>
   );
 }
+
+
+
+
+
+
+

@@ -32,3 +32,10 @@ export async function reserveProductUnit(unitId, orderId) {
     reservedAt: serverTimestamp()
   });
 }
+
+
+
+
+
+
+

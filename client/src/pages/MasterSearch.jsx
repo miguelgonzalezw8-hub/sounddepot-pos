@@ -124,27 +124,27 @@ export default function MasterSearch() {
   return (
     <div className="inventory-container">
       <div className="flex items-center justify-between mb-3">
-        <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">
+        <div className="text-2xl font-bold text-app-text dark:text-app-text">
           Master Search
         </div>
 
         <button
           onClick={() => navigate("/")}
-          className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-sm font-semibold"
+          className="px-3 py-2 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text hover:bg-slate-50 dark:bg-brand-primary dark:hover:bg-brand-primary/90 text-sm font-semibold"
         >
           ← Dashboard
         </button>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
-        <div className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">
+      <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary border rounded-xl shadow-sm p-4">
+        <div className="text-sm font-semibold text-slate-700 dark:text-app-text mb-2">
           Search orders, customers, products, backorders
         </div>
         <input
           value={term}
           onChange={(e) => setTerm(e.target.value)}
           placeholder='Try: "SD-000123", "C1-650", "256", "John", "Backorder"…'
-          className="w-full h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+          className="w-full h-11 px-3 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text dark:bg-app-bg dark:text-app-text"
         />
 
         {!q && (
@@ -157,8 +157,8 @@ export default function MasterSearch() {
       {q && (
         <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
           {/* Orders */}
-          <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
-            <div className="text-sm font-bold mb-3 text-slate-700 dark:text-slate-200">
+          <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary border rounded-xl shadow-sm p-4">
+            <div className="text-sm font-bold mb-3 text-slate-700 dark:text-app-text">
               Orders ({results.orders.length})
             </div>
 
@@ -169,7 +169,7 @@ export default function MasterSearch() {
                 {results.orders.map((o) => (
                   <button
                     key={o.id}
-                    className="w-full text-left px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-slate-800"
+                    className="w-full text-left px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-brand-primary/90"
                     onClick={() => navigate("/reports/sales-summary")}
                   >
                     <div className="flex items-center justify-between">
@@ -190,8 +190,8 @@ export default function MasterSearch() {
           </div>
 
           {/* Customers */}
-          <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
-            <div className="text-sm font-bold mb-3 text-slate-700 dark:text-slate-200">
+          <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary border rounded-xl shadow-sm p-4">
+            <div className="text-sm font-bold mb-3 text-slate-700 dark:text-app-text">
               Customers ({results.customers.length})
             </div>
 
@@ -202,7 +202,7 @@ export default function MasterSearch() {
                 {results.customers.map((c) => (
                   <button
                     key={c.id}
-                    className="w-full text-left px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-slate-800"
+                    className="w-full text-left px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-brand-primary/90"
                     onClick={() => navigate(`/customers/${c.id}`)}
                   >
                     <div className="font-semibold">
@@ -220,8 +220,8 @@ export default function MasterSearch() {
           </div>
 
           {/* Products */}
-          <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
-            <div className="text-sm font-bold mb-3 text-slate-700 dark:text-slate-200">
+          <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary border rounded-xl shadow-sm p-4">
+            <div className="text-sm font-bold mb-3 text-slate-700 dark:text-app-text">
               Products ({results.products.length})
             </div>
 
@@ -232,7 +232,7 @@ export default function MasterSearch() {
                 {results.products.map((p) => (
                   <button
                     key={p.id}
-                    className="w-full text-left px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-slate-800"
+                    className="w-full text-left px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-brand-primary/90"
                     onClick={() => navigate(`/inventory/product/${p.id}`)}
                   >
                     <div className="flex items-center justify-between">
@@ -249,8 +249,8 @@ export default function MasterSearch() {
           </div>
 
           {/* Backorders */}
-          <div className="bg-white dark:bg-slate-900 border rounded-xl shadow-sm p-4">
-            <div className="text-sm font-bold mb-3 text-slate-700 dark:text-slate-200">
+          <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary border rounded-xl shadow-sm p-4">
+            <div className="text-sm font-bold mb-3 text-slate-700 dark:text-app-text">
               Backorders ({results.backorders.length})
             </div>
 
@@ -261,7 +261,7 @@ export default function MasterSearch() {
                 {results.backorders.map((b) => (
                   <button
                     key={b.id}
-                    className="w-full text-left px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-slate-800"
+                    className="w-full text-left px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-brand-primary/90"
                     onClick={() => navigate("/backorders")}
                   >
                     <div className="flex items-center justify-between">
@@ -283,3 +283,10 @@ export default function MasterSearch() {
     </div>
   );
 }
+
+
+
+
+
+
+

@@ -122,3 +122,10 @@ export default function InventoryUnitDetail() {
     </div>
   );
 }
+
+
+
+
+
+
+

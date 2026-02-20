@@ -211,3 +211,10 @@ export function getAllowedDinSizes(vehicle) {
     doubleDin: (f?.dashKits?.doubleDin || []).length > 0,
   };
 }
+
+
+
+
+
+
+

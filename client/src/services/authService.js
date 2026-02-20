@@ -492,3 +492,10 @@ export async function acceptTenantInvite(inviteId) {
 
   return { uid: user.uid, tenantId, email: userEmail };
 }
+
+
+
+
+
+
+

@@ -155,3 +155,10 @@ export default function ReportDailyCloseout() {
     </div>
   );
 }
+
+
+
+
+
+
+

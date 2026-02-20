@@ -33,7 +33,7 @@ function statusPillClass(status) {
   if (s === "received") return "bg-brand-primary/10 text-brand-primary border-brand-primary/30";
   if (s === "notified") return "bg-violet-50 text-violet-700 border-violet-200";
   if (s === "closed") return "bg-brand-accent/10 text-brand-accent border-brand-accent/30";
-  return "bg-slate-50 text-slate-700 border-slate-200";
+  return "bg-slate-50 text-slate-700 border-app-border";
 }
 
 export default function BackorderCenter() {
@@ -110,13 +110,13 @@ export default function BackorderCenter() {
   return (
     <div className="inventory-container">
       <div className="search-row">
-        <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">
+        <div className="text-2xl font-bold text-app-text dark:text-app-text">
           Backorder Center
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm p-4 mb-4">
+      <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary rounded-xl border shadow-sm p-4 mb-4">
         <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
           <div className="flex gap-2 flex-wrap">
             {["open", "ordered", "received", "notified", "closed", "all"].map((k) => (
@@ -126,8 +126,8 @@ export default function BackorderCenter() {
                 className={[
                   "px-3 py-1.5 rounded-lg border text-sm font-semibold",
                   filter === k
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white dark:bg-slate-950 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800",
+                    ? "bg-brand-primary text-white border-brand-primary"
+                    : "bg-app-panel dark:bg-app-panel dark:bg-app-bg dark:text-app-text hover:bg-slate-50 dark:hover:bg-brand-primary/90",
                 ].join(" ")}
               >
                 {k === "all" ? "All" : prettyStatus(k)}
@@ -139,13 +139,13 @@ export default function BackorderCenter() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search order #, product, customer…"
-            className="h-10 w-full md:w-80 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+            className="h-10 w-full md:w-80 px-3 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text dark:bg-app-bg dark:text-app-text"
           />
         </div>
       </div>
 
       {/* List */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm overflow-hidden">
+      <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary rounded-xl border shadow-sm overflow-hidden">
         <div className="grid grid-cols-12 bg-slate-100 dark:bg-slate-800 text-xs font-bold px-4 py-2">
           <div className="col-span-3">Order</div>
           <div className="col-span-4">Item</div>
@@ -189,7 +189,7 @@ function BackorderRow({ row, setStatus, ensureOrderNumber }) {
   return (
     <div className="grid grid-cols-12 px-4 py-3 border-t text-sm items-center gap-2">
       <div className="col-span-3">
-        <div className="font-bold text-slate-900 dark:text-slate-100">
+        <div className="font-bold text-app-text dark:text-app-text">
           {orderNum || "—"}
         </div>
         <div className="text-xs text-slate-500">
@@ -248,11 +248,18 @@ function StatusButton({ label, active, onClick }) {
       className={[
         "px-3 py-1.5 rounded-lg border text-xs font-bold",
         active
-          ? "bg-slate-900 text-white border-slate-900"
-          : "bg-white hover:bg-slate-50 border-slate-200",
+          ? "bg-brand-primary text-white border-brand-primary"
+          : "bg-app-panel dark:bg-app-panel hover:bg-slate-50 border-app-border",
       ].join(" ")}
     >
       {label}
     </button>
   );
 }
+
+
+
+
+
+
+

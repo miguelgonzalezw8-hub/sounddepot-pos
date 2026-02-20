@@ -18,3 +18,10 @@ export function setTerminalConfig(config) {
 export function clearTerminalConfig() {
   localStorage.removeItem(KEY);
 }
+
+
+
+
+
+
+

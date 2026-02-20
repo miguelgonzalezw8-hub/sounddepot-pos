@@ -17,3 +17,10 @@ export async function writeSession({ tenantId, shopId, posAccountId = null }) {
     { merge: true }
   );
 }
+
+
+
+
+
+
+

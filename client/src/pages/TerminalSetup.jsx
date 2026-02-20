@@ -342,3 +342,10 @@ export default function TerminalSetup() {
     </div>
   );
 }
+
+
+
+
+
+
+

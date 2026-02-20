@@ -42,3 +42,10 @@ if (!category.includes("speaker")) return false;
     return false;
   });
 }
+
+
+
+
+
+
+

@@ -224,7 +224,7 @@ export default function ReceiptEditor() {
 
 function Section({ title, children }) {
   return (
-    <div className="bg-white border rounded-lg p-4 space-y-3">
+    <div className="bg-app-panel dark:bg-app-panel border rounded-lg p-4 space-y-3">
       <h2 className="font-semibold">{title}</h2>
       {children}
     </div>
@@ -257,3 +257,10 @@ function Textarea({ label, value, onChange }) {
     </div>
   );
 }
+
+
+
+
+
+
+

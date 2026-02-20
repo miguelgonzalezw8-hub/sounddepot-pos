@@ -208,7 +208,7 @@ export default function CustomerDetail() {
           Loading...
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-xl border shadow-sm p-4 mt-4 space-y-3">
+        <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary rounded-xl border shadow-sm p-4 mt-4 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <input className="search-box" placeholder="Company Name" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
             <input className="search-box" placeholder="Type (Retail/Commercial)" value={type} onChange={(e) => setType(e.target.value)} />
@@ -236,3 +236,10 @@ export default function CustomerDetail() {
     </div>
   );
 }
+
+
+
+
+
+
+

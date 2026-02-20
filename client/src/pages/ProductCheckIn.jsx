@@ -228,12 +228,12 @@ export default function ProductCheckIn() {
       <div className="flex items-center justify-between mb-3">
         <button
           onClick={() => navigate(-1)}
-          className="px-3 py-2 rounded-lg border bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-sm font-semibold"
+          className="px-3 py-2 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text hover:bg-slate-50 dark:bg-brand-primary dark:hover:bg-brand-primary/90 text-sm font-semibold"
         >
           ← Back
         </button>
 
-        <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">
+        <div className="text-2xl font-bold text-app-text dark:text-app-text">
           Product Check-In
         </div>
 
@@ -241,8 +241,8 @@ export default function ProductCheckIn() {
       </div>
 
       {!selectedProduct ? (
-        <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border shadow-sm">
-          <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">
+        <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary rounded-xl p-4 border shadow-sm">
+          <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-app-text">
             Select a product
           </div>
 
@@ -250,11 +250,11 @@ export default function ProductCheckIn() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search product name or SKU…"
-            className="w-full h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+            className="w-full h-11 px-3 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text dark:bg-app-bg dark:text-app-text"
           />
 
           {search && (
-            <div className="mt-2 border rounded-lg max-h-72 overflow-y-auto bg-white dark:bg-slate-950">
+            <div className="mt-2 border rounded-lg max-h-72 overflow-y-auto bg-app-panel dark:bg-app-panel dark:bg-app-bg">
               {filtered.map((p) => (
                 <div
                   key={p.id}
@@ -262,7 +262,7 @@ export default function ProductCheckIn() {
                     setSelectedProduct(p);
                     setSearch("");
                   }}
-                  className="px-3 py-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-900"
+                  className="px-3 py-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-brand-primary"
                 >
                   <div className="font-semibold">{p.name}</div>
                   <div className="text-xs text-slate-500">{p.sku || ""}</div>
@@ -275,10 +275,10 @@ export default function ProductCheckIn() {
           )}
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-xl p-4 border shadow-sm">
+        <div className="bg-app-panel dark:bg-app-panel dark:bg-brand-primary rounded-xl p-4 border shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-lg font-bold text-slate-800 dark:text-slate-100">
+              <div className="text-lg font-bold text-app-text dark:text-app-text">
                 {selectedProduct.name}
               </div>
               <div className="text-xs text-slate-500">{selectedProduct.sku || ""}</div>
@@ -288,7 +288,7 @@ export default function ProductCheckIn() {
             </div>
 
             <button
-              className="px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-slate-800 text-sm"
+              className="px-3 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-brand-primary/90 text-sm"
               onClick={resetForm}
               disabled={saving}
             >
@@ -298,7 +298,7 @@ export default function ProductCheckIn() {
 
           {/* ✅ Mode selector */}
           <div className="mt-4">
-            <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-slate-200">
+            <div className="text-sm font-semibold mb-2 text-slate-700 dark:text-app-text">
               Tracking Mode
             </div>
             <div className="flex gap-2 flex-wrap">
@@ -308,8 +308,8 @@ export default function ProductCheckIn() {
                 className={[
                   "px-3 py-2 rounded-lg border text-sm font-semibold",
                   trackMode === "non"
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800",
+                    ? "bg-brand-primary text-white border-brand-primary"
+                    : "bg-app-panel dark:bg-app-panel hover:bg-slate-50 dark:bg-app-bg dark:hover:bg-brand-primary/90",
                 ].join(" ")}
               >
                 Non-Serialized (Qty)
@@ -320,8 +320,8 @@ export default function ProductCheckIn() {
                 className={[
                   "px-3 py-2 rounded-lg border text-sm font-semibold",
                   trackMode === "serialized"
-                    ? "bg-slate-900 text-white border-slate-900"
-                    : "bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800",
+                    ? "bg-brand-primary text-white border-brand-primary"
+                    : "bg-app-panel dark:bg-app-panel hover:bg-slate-50 dark:bg-app-bg dark:hover:bg-brand-primary/90",
                 ].join(" ")}
               >
                 Serialized (Serials)
@@ -332,14 +332,14 @@ export default function ProductCheckIn() {
           {/* ✅ Cost restored */}
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-slate-200">
+              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-app-text">
                 Unit Cost (optional)
               </div>
               <input
                 value={unitCost}
                 onChange={(e) => setUnitCost(e.target.value)}
                 placeholder="Example: 59.99"
-                className="w-full h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+                className="w-full h-11 px-3 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text dark:bg-app-bg dark:text-app-text"
                 disabled={saving}
               />
               <div className="text-xs text-slate-500 mt-1">
@@ -348,14 +348,14 @@ export default function ProductCheckIn() {
             </div>
 
             <div>
-              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-slate-200">
+              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-app-text">
                 Notes (optional)
               </div>
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Vendor, PO #, etc…"
-                className="w-full h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+                className="w-full h-11 px-3 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text dark:bg-app-bg dark:text-app-text"
                 disabled={saving}
               />
             </div>
@@ -364,7 +364,7 @@ export default function ProductCheckIn() {
           {/* SERIALIZED */}
           {trackMode === "serialized" ? (
             <div className="mt-4">
-              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-slate-200">
+              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-app-text">
                 Scan / Enter Serial Numbers
               </div>
 
@@ -379,7 +379,7 @@ export default function ProductCheckIn() {
                     }
                   }}
                   placeholder="Scan serial and press Enter…"
-                  className="flex-1 h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+                  className="flex-1 h-11 px-3 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text dark:bg-app-bg dark:text-app-text"
                   disabled={saving}
                 />
                 <button
@@ -423,7 +423,7 @@ export default function ProductCheckIn() {
           ) : (
             /* NON-SERIALIZED */
             <div className="mt-4">
-              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-slate-200">
+              <div className="text-sm font-semibold mb-1 text-slate-700 dark:text-app-text">
                 Quantity Received
               </div>
               <input
@@ -431,7 +431,7 @@ export default function ProductCheckIn() {
                 min="1"
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
-                className="w-44 h-11 px-3 rounded-lg border bg-white dark:bg-slate-950 dark:text-slate-100"
+                className="w-44 h-11 px-3 rounded-lg border border-app-border bg-app-panel dark:bg-app-panel text-app-text dark:bg-app-bg dark:text-app-text"
                 disabled={saving}
               />
               <div className="text-xs text-slate-500 mt-2">
@@ -444,7 +444,7 @@ export default function ProductCheckIn() {
           {/* SUBMIT */}
           <div className="mt-5 flex justify-end gap-2">
             <button
-              className="px-4 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-slate-800"
+              className="px-4 py-2 rounded-lg border hover:bg-slate-50 dark:hover:bg-brand-primary/90"
               onClick={resetForm}
               disabled={saving}
             >
@@ -464,3 +464,10 @@ export default function ProductCheckIn() {
     </div>
   );
 }
+
+
+
+
+
+
+

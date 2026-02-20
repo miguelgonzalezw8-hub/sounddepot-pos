@@ -415,3 +415,10 @@ export default function InventoryProductDetail() {
     </div>
   );
 }
+
+
+
+
+
+
+

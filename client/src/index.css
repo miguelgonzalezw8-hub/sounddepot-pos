@@ -6,14 +6,24 @@
    Global Theme + Brand Tokens
    ========================= */
 @layer base {
+  input, select, textarea {
+    background-color: hsl(var(--panel-bg));
+    color: hsl(var(--text));
+    border-color: hsl(var(--border));
+  }
+  input::placeholder, textarea::placeholder {
+    color: hsl(var(--muted));
+  }
+}
+
     body {
     background: hsl(var(--app-bg));
     color: hsl(var(--text));
   }
     :root {
     /* Voltera brand (blue + neon green) */
-    --brand-blue: 210 100% 45%;
-    --brand-green: 145 90% 45%;
+    --brand-blue: 218 65% 38%;
+    --brand-green: 150 70% 40%;
 
     /* Aliases */
     --brand-primary: var(--brand-blue);
@@ -38,7 +48,7 @@
 
   /* Dark mode tokens (if you ever flip on .dark) */
   .dark {
-    --brand-blue: 210 100% 55%;
+    --brand-blue: 218 65% 38%;
     --brand-green: 145 95% 55%;
     --brand-primary: var(--brand-blue);
     --brand-accent: var(--brand-green);
@@ -56,4 +66,4 @@
 
     --focus-ring: var(--brand-accent);
   }
-}
+

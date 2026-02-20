@@ -469,7 +469,7 @@ export default function VehicleFitment({
             setMake("");
             setModel("");
           }}
-          className="h-10 px-3 rounded border bg-white text-sm"
+          className="h-10 px-3 rounded border border-app-border bg-app-panel dark:bg-app-panel text-app-text text-sm"
         >
           <option value="">Year</option>
           {years.map((y) => (
@@ -484,7 +484,7 @@ export default function VehicleFitment({
             setModel("");
           }}
           disabled={!year}
-          className="h-10 px-3 rounded border bg-white text-sm disabled:bg-gray-100"
+          className="h-10 px-3 rounded border border-app-border bg-app-panel dark:bg-app-panel text-app-text text-sm disabled:bg-gray-100"
         >
           <option value="">Make</option>
           {makes.map((m) => (
@@ -496,7 +496,7 @@ export default function VehicleFitment({
           value={model}
           onChange={(e) => setModel(e.target.value)}
           disabled={!make}
-          className="h-10 px-3 rounded border bg-white text-sm disabled:bg-gray-100"
+          className="h-10 px-3 rounded border border-app-border bg-app-panel dark:bg-app-panel text-app-text text-sm disabled:bg-gray-100"
         >
           <option value="">Model</option>
           {models.map((m) => (
@@ -508,7 +508,7 @@ export default function VehicleFitment({
       {fitment && (
         <button
           onClick={() => setShowFilters(true)}
-          className="h-10 px-3 rounded border bg-white text-sm hover:bg-gray-100 w-full"
+          className="h-10 px-3 rounded border border-app-border bg-app-panel dark:bg-app-panel text-app-text text-sm hover:bg-gray-100 w-full"
         >
           Filter Products
         </button>
@@ -526,7 +526,7 @@ export default function VehicleFitment({
                 <button
                   key={p.id}
                   onMouseDown={() => onAddProduct?.(p)}
-                  className="bg-white border rounded-lg p-3 hover:shadow transition text-left"
+                  className="bg-app-panel dark:bg-app-panel border rounded-lg p-3 hover:shadow transition text-left"
                 >
                   <div className="w-full h-32 bg-gray-100 rounded flex items-center justify-center mb-2 overflow-hidden">
                     {p.imageUrl ? (
@@ -579,3 +579,10 @@ export default function VehicleFitment({
     </div>
   );
 }
+
+
+
+
+
+
+
