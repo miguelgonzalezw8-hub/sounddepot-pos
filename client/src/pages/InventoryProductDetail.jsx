@@ -1,3 +1,4 @@
+// client/src/pages/InventoryProductDetail.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { db } from "../firebase";
@@ -12,6 +13,7 @@ import {
   deleteDoc,
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { useSession } from "../session/SessionProvider"; // ✅ tenant scoping
 
 function fmtDate(ts) {
   if (!ts) return "—";
@@ -72,12 +74,14 @@ export default function InventoryProductDetail() {
   const navigate = useNavigate();
   const auth = getAuth();
 
+  const { terminal, tenant } = useSession(); // ✅ tenant scoping
+  const tenantId = terminal?.tenantId || tenant?.tenantId;
+
   const [product, setProduct] = useState(null);
   const [units, setUnits] = useState([]);
 
-  // ✅ FIX 1: default to ALL so units never "disappear" after refresh
+  // ✅ default to ALL so units never "disappear" after refresh
   const [statusFilter, setStatusFilter] = useState("ALL"); // in_stock | sold | reserved | ALL
-
   const [search, setSearch] = useState("");
 
   // UI feedback (in-app)
@@ -91,32 +95,83 @@ export default function InventoryProductDetail() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteErr, setDeleteErr] = useState("");
 
-  // Load master product
+  // Load master product (✅ tenant-checked)
   useEffect(() => {
-    (async () => {
-      const snap = await getDoc(doc(db, "products", productId));
-      if (snap.exists()) setProduct({ id: snap.id, ...snap.data() });
-    })();
-  }, [productId]);
+    let cancelled = false;
 
-  // Load units (from productUnits)
+    (async () => {
+      setPageError("");
+      setProduct(null);
+
+      if (!tenantId) {
+        setPageError("No tenant loaded. Log in / load a terminal session first.");
+        return;
+      }
+
+      try {
+        const snap = await getDoc(doc(db, "products", productId));
+        if (!snap.exists()) {
+          if (!cancelled) setPageError("Product not found.");
+          return;
+        }
+
+        const data = snap.data() || {};
+        // ✅ if you somehow open a product from another tenant, show a clear error instead of permission loops
+        if (data.tenantId && data.tenantId !== tenantId) {
+          if (!cancelled) {
+            setPageError("Permission denied: this product belongs to a different tenant.");
+            setProduct(null);
+          }
+          return;
+        }
+
+        if (!cancelled) setProduct({ id: snap.id, ...data });
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) {
+          setPageError(
+            err?.message?.includes("permission")
+              ? "Permission denied while loading product. Check tenant scoping / rules."
+              : "Failed to load product."
+          );
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, tenantId]);
+
+  // Load units (from productUnits) ✅ TENANT-SCOPED QUERY
   useEffect(() => {
     setPageError("");
 
+    if (!tenantId) {
+      setUnits([]);
+      setPageError("No tenant loaded. Log in / load a terminal session first.");
+      return;
+    }
+
     const base = collection(db, "productUnits");
 
-    // NOTE: if you add more statuses later, ALL will always show everything.
+    // ✅ CRITICAL: tenantId must be in the query for rules to allow it
     const qUnits =
       statusFilter === "ALL"
-        ? query(base, where("productId", "==", productId), orderBy("receivedAt", "desc"))
+        ? query(
+            base,
+            where("tenantId", "==", tenantId),
+            where("productId", "==", productId),
+            orderBy("receivedAt", "desc")
+          )
         : query(
             base,
+            where("tenantId", "==", tenantId),
             where("productId", "==", productId),
             where("status", "==", statusFilter),
             orderBy("receivedAt", "desc")
           );
 
-    // ✅ add error handler so we don't silently show "empty"
     const unsub = onSnapshot(
       qUnits,
       (snap) => {
@@ -129,14 +184,14 @@ export default function InventoryProductDetail() {
           err?.message?.includes("index")
             ? "This query needs a Firestore index. Check the console error link and create the index."
             : err?.message?.includes("permission")
-            ? "Permission denied. Are you signed in?"
+            ? "Permission denied. This query must be tenant-scoped and your rules must allow productUnits for your tenant."
             : "Failed to load checked-in units."
         );
       }
     );
 
     return () => unsub();
-  }, [productId, statusFilter]);
+  }, [productId, statusFilter, tenantId]);
 
   // little toast auto-clear
   useEffect(() => {
@@ -149,7 +204,9 @@ export default function InventoryProductDetail() {
     const s = search.trim().toLowerCase();
     if (!s) return units;
     return units.filter((u) =>
-      `${u.unitId || u.id || ""} ${u.serial || ""} ${u.barcode || ""} ${u.spot || ""} ${u.receivedByName || ""}`
+      `${u.unitId || u.id || ""} ${u.serialNumber || u.serial || ""} ${u.barcode || ""} ${u.spot || ""} ${
+        u.receivedByName || ""
+      }`
         .toLowerCase()
         .includes(s)
     );
@@ -205,7 +262,7 @@ export default function InventoryProductDetail() {
       // Attempt delete
       await deleteDoc(doc(db, "productUnits", deleteUnit.id));
 
-      // ✅ FIX 2: verify it’s truly gone (so we never lie to you)
+      // verify it’s truly gone
       const verify = await getDoc(doc(db, "productUnits", deleteUnit.id));
       if (verify.exists()) {
         setDeleteErr("Delete failed (unit still exists). Check permissions/rules.");
@@ -328,7 +385,7 @@ export default function InventoryProductDetail() {
                   title="Click to inspect unit"
                 >
                   <td>{u.unitId || u.id}</td>
-                  <td>{u.serial || "—"}</td>
+                  <td>{u.serialNumber || u.serial || "—"}</td>
                   <td>{u.barcode || "—"}</td>
                   <td>{u.status || "—"}</td>
                   <td>{u.spot || "—"}</td>
@@ -356,7 +413,7 @@ export default function InventoryProductDetail() {
         </table>
       </div>
 
-      {/* ✅ In-app delete + PIN modal */}
+      {/* In-app delete + PIN modal */}
       <Modal
         open={deleteOpen}
         title={`Delete ${deleteUnit?.unitId || deleteUnit?.id || ""}`}
@@ -415,10 +472,3 @@ export default function InventoryProductDetail() {
     </div>
   );
 }
-
-
-
-
-
-
-

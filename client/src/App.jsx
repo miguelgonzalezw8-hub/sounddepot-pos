@@ -8,7 +8,7 @@ import ManagerCoupons from "./pages/ManagerCoupons";
 import ManagerLabor from "./pages/ManagerLabor";
 import { collection, query, where, orderBy, limit, onSnapshot, Timestamp,} from "firebase/firestore";
 import logo from "./assets/logo.png";
-
+import InventoryImport from "./pages/InventoryImport";
 
 /* ================= SHOPMONKEY-STYLE TERMINAL GATE ================= */
 import { SessionProvider, useSession } from "./session/SessionProvider";
@@ -661,7 +661,7 @@ function AppInner() {
                 </RequireManagerPin>
               }
             />
-
+            <Route path="/manager/import" element={<InventoryImport />} /> 
             <Route
               path="/manager/bundles/:bundleId"
               element={

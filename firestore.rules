@@ -153,8 +153,8 @@ service cloud.firestore {
       allow write: if isDev();
     }
 
-    // ✅ shops: READ already supports session/profile
-    // ✅ shops: WRITE now supports session/profile (MINIMAL SAFE ADD)
+    // ✅ shops: READ supports session/profile
+    // ✅ shops: WRITE supports session/profile (MINIMAL SAFE ADD)
     match /shops/{shopId} {
       allow read: if isDev()
         || (hasSession() && resource.data.tenantId == sessionTenantId())
@@ -176,7 +176,7 @@ service cloud.firestore {
     }
 
     match /posAccounts/{id} {
-      // READ (keep tenant-scoped)
+      // READ (tenant-scoped)
       allow read: if isDev()
         || (hasUserProfile()
             && resource.data.tenantId == myTenantId()
@@ -312,6 +312,14 @@ service cloud.firestore {
       allow update, delete: if allowTenantUpdateDelete();
     }
 
+    // ✅ NEW: serialized units written by importer
+    // inventoryUnits/{unitId} docs must include tenantId field
+    match /inventoryUnits/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
     match /counters/{id} {
       // counters are stored like: counters/t_<tenantId>_products_SE
       allow read, create, update, delete: if isTenantCounterId(id);
@@ -334,13 +342,11 @@ service cloud.firestore {
         return id == "security";
       }
 
-      // ✅ tenant security doc id format: security_<tenantId>
       function isTenantSecurityDoc() {
         return id.matches("^security_.+");
       }
 
       function tenantFromSecurityId() {
-        // For "security_<tenantId>" => "<tenantId>"
         return id.replace("security_", "");
       }
 
@@ -363,22 +369,16 @@ service cloud.firestore {
               || request.resource.data.tenantId == sessionTenantId());
       }
 
-      // READ
       allow read: if isDev()
-        // legacy security doc (no tenant)
         || (signedIn() && isLegacySecurityDoc() && isOwnerOrManager())
-        // ✅ tenant security doc (works even if doc doesn't exist yet)
         || (signedIn() && isTenantSecurityDoc() && isOwnerOrManager() && securityTenantMatches())
-        // other tenant-scoped settings by tenantId field
         || (signedIn() && !isLegacySecurityDoc() && !isTenantSecurityDoc() && settingsTenantMatchesResource());
 
-      // CREATE
       allow create: if isDev()
         || (signedIn() && isLegacySecurityDoc() && isOwnerOrManager())
         || (signedIn() && isTenantSecurityDoc() && isOwnerOrManager() && securityTenantMatches())
         || (signedIn() && !isLegacySecurityDoc() && !isTenantSecurityDoc() && isOwnerOrManager() && settingsTenantMatchesRequest());
 
-      // UPDATE
       allow update: if isDev()
         || (signedIn() && isLegacySecurityDoc() && isOwnerOrManager())
         || (signedIn() && isTenantSecurityDoc() && isOwnerOrManager() && securityTenantMatches())
@@ -387,7 +387,6 @@ service cloud.firestore {
             && settingsTenantMatchesResource()
             && request.resource.data.tenantId == resource.data.tenantId);
 
-      // DELETE
       allow delete: if isDev()
         || (signedIn() && isLegacySecurityDoc() && isOwnerOrManager())
         || (signedIn() && isTenantSecurityDoc() && isOwnerOrManager() && securityTenantMatches())
@@ -424,6 +423,7 @@ service cloud.firestore {
       allow update, delete: if allowTenantUpdateDelete();
     }
 
+    // ✅ If your app uses productUnits, keep it.
     match /productUnits/{id} {
       allow read: if allowTenantRead();
       allow create: if allowTenantCreate();
@@ -455,10 +455,7 @@ service cloud.firestore {
     }
 
     /* =========================
-       SHOP SUBCOLLECTIONS (FIX)
-       - laborCatalog
-       - bundles
-       - coupons (if you store them there)
+       SHOP SUBCOLLECTIONS
        ========================= */
 
     function allowShopDocRead(shopId) {
@@ -467,7 +464,6 @@ service cloud.firestore {
         || (hasUserProfile() && canUseShopId(shopId));
     }
 
-    // ✅ UPDATED: write allowed via profile OR via session (current terminal shop)
     function allowShopDocWrite(shopId) {
       return isDev()
         || (hasUserProfile() && isOwnerOrManager() && canUseShopId(shopId))
@@ -504,7 +500,6 @@ service cloud.firestore {
     }
 
     match /shops/{shopId}/bundles/{id} {
-      // bundles need to be readable in Sell (no manager PIN)
       allow read: if signedIn()
         && allowShopDocRead(shopId)
         && hasTenantFieldOnResource()
@@ -533,7 +528,6 @@ service cloud.firestore {
         );
     }
 
-    // OPTIONAL: if coupons are stored under shop
     match /shops/{shopId}/coupons/{id} {
       allow read: if signedIn()
         && allowShopDocRead(shopId)
