@@ -4,23 +4,35 @@ import {
   watchAuth,
   loadTenant,
   loadShop,
-  loadUserProfile,
+  loadUserProfile as loadUserProfileFromService,
   unlockWithPin,
   logoutFirebase,
 } from "../services/authService";
 import { getTerminalConfig, clearTerminalConfig } from "../services/terminalConfig";
 
-// ✅ Firestore session upsert lives here (so you don't depend on authService exports)
 import { db } from "../firebase";
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 
 const SessionContext = createContext(null);
+
 // ✅ your dev UID (matches rules)
 const DEV_UID = "0AjEwNVNFyc2NS0IhWxkfTACI9Y2";
 
-// ✅ AUTO-LOCK SETTINGS (ADDED)
 // shared terminals only; inactivity forces PIN again
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (change if you want)
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+
+function normalizeRole(r) {
+  return String(r || "").trim().toLowerCase();
+}
+
+function isOwnerRole(role) {
+  const r = normalizeRole(role);
+  return r === "owner" || r === "tenant_owner" || r === "main_owner" || r === "tenant";
+}
+
+function isManagerRole(role) {
+  return normalizeRole(role) === "manager";
+}
 
 export function SessionProvider({ children }) {
   const [firebaseUser, setFirebaseUser] = useState(null);
@@ -32,23 +44,20 @@ export function SessionProvider({ children }) {
   const [tenant, setTenant] = useState(null);
   const [shop, setShop] = useState(null);
 
-  // Shopmonkey-style unlocked account
+  // ✅ user profile doc (users/{uid}) so role is available
+  const [userProfile, setUserProfile] = useState(null);
+
+  // PIN-unlocked account (posAccounts)
   const [posAccount, setPosAccount] = useState(null);
 
   const [booting, setBooting] = useState(true);
   const [unlocking, setUnlocking] = useState(false);
 
   const devMode = firebaseUser?.uid === DEV_UID;
+  const isOwnerTerminal = terminal?.mode === "owner";
 
-  // Track last boot key to avoid redundant work
   const lastBootKeyRef = useRef("");
-
-  // ✅ idle timer refs (ADDED)
   const idleTimerRef = useRef(null);
-
-  // ---------------------------
-  // Helpers
-  // ---------------------------
 
   async function ensureSessionDoc({ user, terminalConfig }) {
     if (!user?.uid) return { ok: false, reason: "no-user" };
@@ -58,19 +67,21 @@ export function SessionProvider({ children }) {
 
     const ref = doc(db, "sessions", user.uid);
 
-    // 1) write
+    // write
     await setDoc(
       ref,
       {
+        uid: user.uid,
         tenantId: terminalConfig.tenantId,
         shopId: terminalConfig.shopId,
         mode: terminalConfig.mode || "shared",
+        posAccountId: null,
         updatedAt: serverTimestamp(),
       },
       { merge: true }
     );
 
-    // 2) read back (proves rules allow it + data present)
+    // read back (proves rules allow it)
     const snap = await getDoc(ref);
     if (!snap.exists()) return { ok: false, reason: "session-missing-after-write" };
 
@@ -85,27 +96,37 @@ export function SessionProvider({ children }) {
   }
 
   // ---------------------------
-  // Watch firebase auth state
+  // Watch Firebase auth state
   // ---------------------------
   useEffect(() => {
-    const unsub = watchAuth((u) => {
+    const unsub = watchAuth(async (u) => {
       setFirebaseUser(u);
 
-      // ✅ If dev logs in, we don't need terminal/pin
-      if (u?.uid === DEV_UID) return;
+      // ✅ dev shortcut
+      if (u?.uid === DEV_UID) {
+        setUserProfile({ uid: u.uid, role: "dev" });
+        return;
+      }
 
-      // ✅ if auth goes away, clear any stale pin user
-      if (!u) setPosAccount(null);
+      if (!u) {
+        setPosAccount(null);
+        setUserProfile(null);
+        return;
+      }
 
-      // If terminal is configured but no auth session exists, we can't run
-      if (terminal?.tenantId && terminal?.shopId && !u) {
-        console.warn("No Firebase auth session. Login is required on this terminal.");
+      // ✅ Load user profile (role, tenantId, etc.)
+      try {
+        const profile = await loadUserProfileFromService(u.uid);
+        setUserProfile(profile || null);
+      } catch (e) {
+        console.warn("[loadUserProfile] failed:", e);
+        setUserProfile(null);
       }
     });
 
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminal?.tenantId, terminal?.shopId]);
+  }, []);
 
   // ---------------------------
   // Boot: ensure session -> load tenant/shop
@@ -115,11 +136,19 @@ export function SessionProvider({ children }) {
 
     async function run() {
       setBooting(true);
+
+      const claimRole = normalizeRole(firebaseUser?.claims?.role || firebaseUser?.role || "");
+      const profileRole = normalizeRole(userProfile?.role || "");
+      const effectiveRole = claimRole || profileRole;
+
       console.log("[BOOT CHECK]", {
         uid: firebaseUser?.uid,
         devMode,
         terminal,
         hasTenantShop: !!terminal?.tenantId && !!terminal?.shopId,
+        claimRole,
+        profileRole,
+        effectiveRole,
       });
 
       try {
@@ -135,14 +164,12 @@ export function SessionProvider({ children }) {
           return;
         }
 
-        // ✅ Non-dev must be signed in before we attempt any bootstrap loads
-        // (prevents permission loops)
+        // Non-dev must be signed in before bootstrap loads
         if (!devMode && !firebaseUser) {
           clearResolved();
           return;
         }
 
-        // Avoid repeating the same boot work
         const bootKey = [
           devMode ? "dev" : "nodev",
           firebaseUser?.uid || "nouser",
@@ -154,13 +181,11 @@ export function SessionProvider({ children }) {
         if (lastBootKeyRef.current === bootKey) return;
         lastBootKeyRef.current = bootKey;
 
-        // ✅ MOST IMPORTANT: make sure sessions/{uid} exists before tenant-scoped reads
+        // ✅ ensure sessions/{uid} exists (tenant scoping)
         if (!devMode) {
           const res = await ensureSessionDoc({ user: firebaseUser, terminalConfig: terminal });
           console.log("[SESSION ENSURE]", res);
-
           if (!res.ok) {
-            // stop here so we don't spam permission-denied
             clearResolved();
             return;
           }
@@ -184,11 +209,10 @@ export function SessionProvider({ children }) {
     }
 
     run();
-
     return () => {
       cancelled = true;
     };
-  }, [devMode, firebaseUser, terminal?.tenantId, terminal?.shopId, terminal?.mode]);
+  }, [devMode, firebaseUser, terminal?.tenantId, terminal?.shopId, terminal?.mode, userProfile]);
 
   async function doUnlock(pin) {
     if (!terminal?.tenantId || !terminal?.shopId) return null;
@@ -208,25 +232,22 @@ export function SessionProvider({ children }) {
   }
 
   function lock() {
-    // ✅ dev never locks via PIN screen
+    // dev never locks via PIN screen
     if (devMode) return;
 
-    // ✅ owner-mode terminals do not lock via PIN
-    if (terminal?.mode === "owner") return;
+    // owner-mode terminals do not lock via PIN
+    if (isOwnerTerminal) return;
 
     setPosAccount(null);
   }
 
   // ---------------------------
-  // ✅ AUTO-LOCK ON INACTIVITY (ADDED)
-  // Shared terminals only: if posAccount is set and idle too long -> lock()
+  // AUTO-LOCK ON INACTIVITY (shared terminals only)
   // ---------------------------
   useEffect(() => {
-    // only apply to SHARED terminals (PIN flow)
-    const isSharedTerminal = !devMode && terminal?.mode !== "owner";
+    const isSharedTerminal = !devMode && !isOwnerTerminal;
     const isUnlockedShared = isSharedTerminal && !!posAccount;
 
-    // clear any running timer if not active
     if (!isUnlockedShared) {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       idleTimerRef.current = null;
@@ -235,24 +256,16 @@ export function SessionProvider({ children }) {
 
     const reset = () => {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => {
-        // lock after inactivity
-        setPosAccount(null);
-      }, IDLE_TIMEOUT_MS);
+      idleTimerRef.current = setTimeout(() => setPosAccount(null), IDLE_TIMEOUT_MS);
     };
 
-    // start timer now
     reset();
 
-    // activity events
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
     events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
 
-    // optional: lock immediately when the tab/app loses focus
     const onVisibility = () => {
-      if (document.visibilityState !== "visible") {
-        setPosAccount(null);
-      }
+      if (document.visibilityState !== "visible") setPosAccount(null);
     };
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -262,48 +275,122 @@ export function SessionProvider({ children }) {
       events.forEach((e) => window.removeEventListener(e, reset));
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [devMode, terminal?.mode, posAccount]);
+  }, [devMode, isOwnerTerminal, posAccount]);
 
   async function resetTerminal() {
     clearTerminalConfig();
     setTerminal(null);
     setPosAccount(null);
+    setUserProfile(null);
     clearResolved();
-
-    // Reset boot key so next setup boots fresh
     lastBootKeyRef.current = "";
 
-    // ✅ dev can stay signed in; everyone else logs out
     if (!devMode) await logoutFirebase();
   }
+
+  const claimRole = useMemo(
+    () => normalizeRole(firebaseUser?.claims?.role || firebaseUser?.role || ""),
+    [firebaseUser]
+  );
+  const profileRole = useMemo(() => normalizeRole(userProfile?.role || ""), [userProfile]);
+  const effectiveRole = useMemo(() => claimRole || profileRole, [claimRole, profileRole]);
+
+  const isOwnerOrManagerRole = useMemo(() => {
+    return isOwnerRole(effectiveRole) || isManagerRole(effectiveRole);
+  }, [effectiveRole]);
+
+  // ✅ This is what pages should use to gate manager-only actions
+  const canManagerOverride = useMemo(() => {
+    if (devMode) return true;
+
+    // Owner terminal bypass (no PIN needed)
+    if (isOwnerTerminal && !!firebaseUser) return true;
+
+    // Owner/manager signed-in account bypass (no PIN needed)
+    if (!!firebaseUser && isOwnerOrManagerRole) return true;
+
+    // Otherwise, require unlocked PIN account with manager/owner role
+    const r = normalizeRole(posAccount?.role || "");
+    return r === "owner" || r === "manager";
+  }, [devMode, isOwnerTerminal, firebaseUser, isOwnerOrManagerRole, posAccount?.role]);
+
+  // ✅ Keep "isUnlocked" meaning: can use the app pages (not “manager override”)
+  const isUnlocked = useMemo(() => {
+    if (devMode) return true;
+
+    // owner terminal: Firebase login is enough
+    if (isOwnerTerminal) return !!firebaseUser;
+
+    // shared terminal requires PIN
+    return !!posAccount;
+  }, [devMode, isOwnerTerminal, firebaseUser, posAccount]);
+
+  // Helpful debug
+  useEffect(() => {
+    window.__SESSION_DEBUG__ = {
+      firebaseUid: firebaseUser?.uid || null,
+      terminal,
+      claimRole,
+      profileRole,
+      effectiveRole,
+      isOwnerOrManagerRole,
+      isOwnerTerminal,
+      isUnlocked,
+      canManagerOverride,
+      posAccount: posAccount ? { id: posAccount.id, role: posAccount.role } : null,
+    };
+  }, [
+    firebaseUser,
+    terminal,
+    claimRole,
+    profileRole,
+    effectiveRole,
+    isOwnerOrManagerRole,
+    isOwnerTerminal,
+    isUnlocked,
+    canManagerOverride,
+    posAccount,
+  ]);
 
   const value = useMemo(
     () => ({
       firebaseUser,
       devMode,
       terminal,
-      setTerminal, // used by setup screen after manager login
+      setTerminal,
       tenant,
       shop,
+      userProfile,
       posAccount,
 
-      // ✅ DEV always unlocked
-      // ✅ OWNER terminal unlocked if signed-in user exists (no PIN)
-      // ✅ SHARED terminal unlocked only if posAccount is set (PIN)
-      isUnlocked: devMode
-        ? true
-        : terminal?.mode === "owner"
-        ? !!firebaseUser
-        : !!posAccount,
+      // manager-only bypass signal for delete/edit actions
+      canManagerOverride,
+
+      // page-level unlock
+      isUnlocked,
 
       booting,
       unlocking,
       doUnlock,
       lock,
       resetTerminal,
-      loadUserProfile,
+
+      // keep export available to pages that want to refresh profile
+      loadUserProfile: loadUserProfileFromService,
     }),
-    [firebaseUser, devMode, terminal, tenant, shop, posAccount, booting, unlocking]
+    [
+      firebaseUser,
+      devMode,
+      terminal,
+      tenant,
+      shop,
+      userProfile,
+      posAccount,
+      canManagerOverride,
+      isUnlocked,
+      booting,
+      unlocking,
+    ]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
@@ -314,10 +401,3 @@ export function useSession() {
   if (!ctx) throw new Error("useSession must be used inside SessionProvider");
   return ctx;
 }
-
-
-
-
-
-
-

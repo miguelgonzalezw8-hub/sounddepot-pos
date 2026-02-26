@@ -13,7 +13,7 @@ import {
   deleteDoc,
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
-import { useSession } from "../session/SessionProvider"; // ✅ tenant scoping
+import { useSession } from "../session/SessionProvider";
 
 function fmtDate(ts) {
   if (!ts) return "—";
@@ -74,8 +74,16 @@ export default function InventoryProductDetail() {
   const navigate = useNavigate();
   const auth = getAuth();
 
-  const { terminal, tenant } = useSession(); // ✅ tenant scoping
+  // ✅ Session
+  const { terminal, tenant, devMode, canManagerOverride } = useSession();
   const tenantId = terminal?.tenantId || tenant?.tenantId;
+
+  // ✅ Owner terminal bypass (no PIN required)
+  const isOwnerTerminal = terminal?.mode === "owner";
+
+  // ✅ This is the "bypass pin" switch for this page
+  // dev OR owner terminal OR owner/manager role (via SessionProvider)
+  const bypassPin = !!devMode || !!isOwnerTerminal || !!canManagerOverride;
 
   const [product, setProduct] = useState(null);
   const [units, setUnits] = useState([]);
@@ -204,9 +212,9 @@ export default function InventoryProductDetail() {
     const s = search.trim().toLowerCase();
     if (!s) return units;
     return units.filter((u) =>
-      `${u.unitId || u.id || ""} ${u.serialNumber || u.serial || ""} ${u.barcode || ""} ${u.spot || ""} ${
-        u.receivedByName || ""
-      }`
+      `${u.unitId || u.id || ""} ${u.serialNumber || u.serial || ""} ${u.barcode || ""} ${
+        u.spot || ""
+      } ${u.receivedByName || ""}`
         .toLowerCase()
         .includes(s)
     );
@@ -225,8 +233,46 @@ export default function InventoryProductDetail() {
     setDeleteOpen(true);
   };
 
+  const doDeleteNow = async () => {
+    if (!deleteUnit) return;
+
+    setDeleteBusy(true);
+    setDeleteErr("");
+
+    try {
+      await deleteDoc(doc(db, "productUnits", deleteUnit.id));
+
+      // verify it’s truly gone (helps catch permission/failed writes)
+      const verify = await getDoc(doc(db, "productUnits", deleteUnit.id));
+      if (verify.exists()) {
+        setDeleteErr("Delete failed (unit still exists). Check permissions/rules.");
+        return;
+      }
+
+      setDeleteOpen(false);
+      setDeleteUnit(null);
+      setPin("");
+      setToast("Unit deleted ✅");
+    } catch (err) {
+      console.error(err);
+      setDeleteErr(
+        err?.message?.includes("permission")
+          ? "Permission denied while deleting unit."
+          : "Delete failed."
+      );
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   const confirmDeleteWithPin = async () => {
     if (!deleteUnit) return;
+
+    // ✅ BYPASS: dev OR owner terminal OR owner/manager role
+    if (bypassPin) {
+      await doDeleteNow();
+      return;
+    }
 
     const uid = auth.currentUser?.uid || null;
     if (!uid) {
@@ -259,19 +305,7 @@ export default function InventoryProductDetail() {
         return;
       }
 
-      // Attempt delete
-      await deleteDoc(doc(db, "productUnits", deleteUnit.id));
-
-      // verify it’s truly gone
-      const verify = await getDoc(doc(db, "productUnits", deleteUnit.id));
-      if (verify.exists()) {
-        setDeleteErr("Delete failed (unit still exists). Check permissions/rules.");
-        return;
-      }
-
-      setDeleteOpen(false);
-      setDeleteUnit(null);
-      setToast("Unit deleted ✅");
+      await doDeleteNow();
     } catch (err) {
       console.error(err);
       setDeleteErr(
@@ -399,6 +433,8 @@ export default function InventoryProductDetail() {
                       title={
                         u.status === "sold"
                           ? "Sold units cannot be deleted"
+                          : bypassPin
+                          ? "Delete this unit"
                           : "Delete this unit (requires manager PIN)"
                       }
                       onClick={() => openDeleteModal(u)}
@@ -429,15 +465,23 @@ export default function InventoryProductDetail() {
           This should only be used to correct check-in mistakes.
         </div>
 
-        <div style={{ marginBottom: 8, fontWeight: 700, fontSize: 13 }}>Manager PIN</div>
-        <input
-          className="search-box search-box-wide"
-          type="password"
-          value={pin}
-          onChange={(e) => setPin(e.target.value)}
-          placeholder="Enter PIN"
-          disabled={deleteBusy}
-        />
+        {!bypassPin ? (
+          <>
+            <div style={{ marginBottom: 8, fontWeight: 700, fontSize: 13 }}>Manager PIN</div>
+            <input
+              className="search-box search-box-wide"
+              type="password"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder="Enter PIN"
+              disabled={deleteBusy}
+            />
+          </>
+        ) : (
+          <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 10 }}>
+            Owner/Manager verified — no PIN required.
+          </div>
+        )}
 
         {deleteErr && (
           <div style={{ marginTop: 10, color: "#b91c1c", fontSize: 13 }}>{deleteErr}</div>

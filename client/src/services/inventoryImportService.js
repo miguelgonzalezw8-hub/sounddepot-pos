@@ -3,199 +3,240 @@ import { db } from "../firebase";
 import {
   collection,
   doc,
+  getDocs,
+  query,
+  where,
   serverTimestamp,
   writeBatch,
-  runTransaction,
+  increment,
 } from "firebase/firestore";
 
-/* ===============================
-   NEAT PRODUCT ID HELPERS
-   Format: <BRANDCODE><####>
-   BRANDCODE = first + last char of brand (A-Z0-9), uppercase
-   Example: "JL Audio" -> "JO0001"
-   =============================== */
-function makeBrandCode(brand) {
-  const cleaned = String(brand || "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-  if (cleaned.length >= 2) return cleaned[0] + cleaned[cleaned.length - 1];
-  if (cleaned.length === 1) return cleaned[0] + cleaned[0];
-  return "XX";
+function cleanStr(v) {
+  return String(v || "").trim();
 }
-
-async function getNextProductIdForBrand(dbRef, tenantId, brand) {
-  const brandCode = makeBrandCode(brand);
-
-  // ✅ Per-tenant counter doc id
-  const counterRef = doc(dbRef, "counters", `t_${tenantId}_products_${brandCode}`);
-
-  const nextNum = await runTransaction(dbRef, async (tx) => {
-    const snap = await tx.get(counterRef);
-    const current = snap.exists() ? Number(snap.data()?.next || 1) : 1;
-
-    tx.set(
-      counterRef,
-      { tenantId, brandCode, next: current + 1, updatedAt: serverTimestamp() },
-      { merge: true }
-    );
-
-    return current;
-  });
-
-  const padded = String(nextNum).padStart(4, "0");
-  return `${brandCode}${padded}`;
+function normKey(v) {
+  return cleanStr(v).toLowerCase();
 }
-
-// Stable key for grouping rows into one "product"
-function makeProductGroupKey(p) {
-  const sku = String(p.sku || "").trim().toLowerCase();
-  const brand = String(p.subBrand || p.brand || "").trim().toLowerCase();
-  const name = String(p.name || "").trim().toLowerCase();
-
-  // Prefer SKU if present (best)
-  if (sku) return `sku:${brand}:${sku}`;
-
-  // Fallback: brand + name
-  return `name:${brand}:${name}`;
+function toInt(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.floor(n));
 }
-
-function cleanSerial(s) {
-  return String(s || "").trim();
-}
-
-function unitDocId(tenantId, productId, serial) {
-  // deterministic + safe (prevents dupes on re-import)
-  const safe = cleanSerial(serial).replace(/[^A-Za-z0-9_-]/g, "");
-  return `t_${tenantId}_${productId}_${safe}`;
-}
-
-function chunkArray(arr, size) {
+function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
 
 /**
- * Import products + serialized inventory units.
- *
- * Writes:
- * - products/{productId}
- * - inventoryUnits/{t_<tenant>_<productId>_<serial>}
- *
- * Assumes the caller already normalized rows into:
- * {
- *   name, description, sku, barcode, brand/subBrand, category,
- *   price, cost, active, speakerSize/speakerSizes,
- *   serialNumber (optional)
- * }
+ * Strict identity key:
+ * Prefer barcode, else sku, else brand+name.
+ * This key is ONLY for de-duping inside this import run.
  */
-export async function writeProductsAndUnitsBatch({ tenantId, rows }) {
-  if (!tenantId) throw new Error("Missing tenantId");
-  if (!Array.isArray(rows) || rows.length === 0) return { productsUpserted: 0, unitsInserted: 0 };
+function identityKey(row) {
+  const barcode = normKey(row.barcode);
+  const sku = normKey(row.sku);
+  const brand = normKey(row.subBrand || row.brand);
+  const name = normKey(row.name);
 
-  // 1) Group rows into products
-  const groups = new Map(); // key -> { productDraft, serials: [], rows: [] }
+  if (barcode) return `barcode:${barcode}`;
+  if (sku) return `sku:${sku}`;
+  return `bn:${brand}|${name}`;
+}
+
+/**
+ * Preload existing products so we don't query per row.
+ * We only match existing products by barcode or sku.
+ */
+async function preloadExistingProducts({ tenantId, rows }) {
+  const barcodeSet = new Set();
+  const skuSet = new Set();
 
   for (const r of rows) {
-    if (!r?.name) continue;
-
-    const key = makeProductGroupKey(r);
-    const cur = groups.get(key) || { productDraft: null, serials: [], rows: [] };
-
-    // take the first row as the base product draft
-    if (!cur.productDraft) cur.productDraft = r;
-
-    // collect serials if present
-    const sn = cleanSerial(r.serialNumber);
-    if (sn) cur.serials.push(sn);
-
-    cur.rows.push(r);
-    groups.set(key, cur);
+    const b = cleanStr(r.barcode);
+    const s = cleanStr(r.sku);
+    if (b) barcodeSet.add(b);
+    if (s) skuSet.add(s);
   }
 
-  const groupList = [...groups.values()];
-  if (groupList.length === 0) return { productsUpserted: 0, unitsInserted: 0 };
+  const barcodeList = Array.from(barcodeSet);
+  const skuList = Array.from(skuSet);
 
-  // 2) Create productIds for each group (pretty IDs)
-  // NOTE: This is per-product transaction because your counter is per brandCode.
-  // For typical imports this is fine.
-  for (const g of groupList) {
-    const brand = g.productDraft?.subBrand || g.productDraft?.brand || "Unknown";
-    g.productId = await getNextProductIdForBrand(db, tenantId, brand);
+  const byBarcode = new Map(); // barcode -> productId
+  const bySku = new Map(); // sku -> productId
+
+  // Firestore "in" supports up to 30 values
+  for (const part of chunk(barcodeList, 30)) {
+    const q1 = query(
+      collection(db, "products"),
+      where("tenantId", "==", tenantId),
+      where("barcode", "in", part)
+    );
+    // eslint-disable-next-line no-await-in-loop
+    const snap = await getDocs(q1);
+    for (const d of snap.docs) {
+      const data = d.data();
+      const b = cleanStr(data.barcode);
+      if (b) byBarcode.set(b, d.id);
+    }
   }
 
-  // 3) Write products + units in batches
-  // We'll do ~250 groups per commit to stay far under 500 ops.
-  // Each group can create 1 product + N units. If a group has tons of units, it spills into multiple commits automatically.
+  for (const part of chunk(skuList, 30)) {
+    const q2 = query(
+      collection(db, "products"),
+      where("tenantId", "==", tenantId),
+      where("sku", "in", part)
+    );
+    // eslint-disable-next-line no-await-in-loop
+    const snap = await getDocs(q2);
+    for (const d of snap.docs) {
+      const data = d.data();
+      const s = cleanStr(data.sku);
+      if (s) bySku.set(s, d.id);
+    }
+  }
+
+  return { byBarcode, bySku };
+}
+
+export async function writeProductsAndUnitsBatch({ tenantId, rows }) {
+  if (!tenantId) throw new Error("writeProductsAndUnitsBatch: missing tenantId");
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { productsUpserted: 0, unitsInserted: 0 };
+  }
+
+  // Filter out rows with no name at all (avoid junk)
+  const cleaned = rows.filter((r) => cleanStr(r?.name));
+
+  const { byBarcode, bySku } = await preloadExistingProducts({ tenantId, rows: cleaned });
+
+  // Cache of identityKey -> productRef (so we create only one master per item per import)
+  const masterRefByKey = new Map();
+
+  // Accumulate non-serialized qty per master productRef.id
+  const stockAddsByProductId = new Map();
+
   let productsUpserted = 0;
   let unitsInserted = 0;
 
-  // Flatten ops so we can chunk safely
-  const ops = [];
+  // We'll batch writes in chunks to stay under limits
+  let batch = writeBatch(db);
+  let ops = 0;
 
-  for (const g of groupList) {
-    const p = g.productDraft || {};
-    const productId = g.productId;
+  const flush = async () => {
+    if (ops === 0) return;
+    await batch.commit();
+    batch = writeBatch(db);
+    ops = 0;
+  };
 
-    // Product doc
-    ops.push({
-      type: "product",
-      ref: doc(collection(db, "products"), productId),
-      data: {
-        ...p,
+  for (const r of cleaned) {
+    const barcode = cleanStr(r.barcode);
+    const sku = cleanStr(r.sku);
+    const serial = cleanStr(r.serialNumber);
+
+    const key = identityKey(r);
+
+    // Resolve or create master product ref
+    let productRef = masterRefByKey.get(key);
+
+    if (!productRef) {
+      // Try existing first (STRICT: barcode, then sku)
+      let existingId = null;
+      if (barcode && byBarcode.has(barcode)) existingId = byBarcode.get(barcode);
+      else if (sku && bySku.has(sku)) existingId = bySku.get(sku);
+
+      productRef = existingId ? doc(db, "products", existingId) : doc(collection(db, "products"));
+      masterRefByKey.set(key, productRef);
+
+      const rawBrand = cleanStr(r.brand);
+      const subBrand = cleanStr(r.subBrand || r.brand);
+
+      const master = {
         tenantId,
-        productId,
-        active: p.active !== false, // default true
-        serialized: g.serials.length > 0,
-        // Stock should reflect serial count if serialized; otherwise keep stock if provided.
-        stock: g.serials.length > 0 ? g.serials.length : Number(p.stock || 0),
+        active: true,
+
+        name: cleanStr(r.name),
+        description: cleanStr(r.description),
+
+        sku,
+        barcode,
+
+        brand: rawBrand,
+        subBrand: subBrand || rawBrand,
+
+        category: cleanStr(r.category),
+
+        price: Number(r.price) || 0,
+        cost: Number(r.cost) || 0,
+
+        speakerSize: r.speakerSize || null,
+        speakerSizes: Array.isArray(r.speakerSizes) ? r.speakerSizes : [],
+
+        // This can be toggled later, but helpful:
+        trackSerials: !!serial,
+        requiresSerial: !!serial,
+        serialized: !!serial,
+
+        importMeta: r.importMeta || { source: "csv" },
+
         updatedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
-        importMeta: {
-          ...(p.importMeta || {}),
-          source: "csv",
-          mode: "products+units",
-        },
-      },
-    });
-    productsUpserted++;
+      };
 
-    // Unit docs (one per serial)
-    for (const serial of g.serials) {
-      const unitId = unitDocId(tenantId, productId, serial);
+      batch.set(productRef, master, { merge: true });
+      productsUpserted += 1;
+      ops += 1;
+      if (ops > 450) await flush();
+    }
 
-      ops.push({
-        type: "unit",
-        ref: doc(collection(db, "inventoryUnits"), unitId),
-        data: {
-          tenantId,
-          productId,
-          sku: p.sku || "",
-          name: p.name || "",
-          brand: p.subBrand || p.brand || "",
-          serialNumber: serial,
-          barcode: p.barcode || "",
-          status: "in_stock",
-          receivedAt: serverTimestamp(),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          importMeta: { source: "csv" },
-        },
+    // SERIALIZED ROW -> create ONE unit tied to THIS productRef
+    if (serial) {
+      const unitRef = doc(collection(db, "productUnits"));
+
+      batch.set(unitRef, {
+        tenantId,
+        productId: productRef.id,
+        productName: cleanStr(r.name) || "",
+        sku: sku || "",
+        status: "in_stock",
+        receivedAt: serverTimestamp(),
+        notes: "Imported from CSV",
+        cost: Number.isFinite(Number(r.cost)) ? Number(r.cost) : null,
+        createdAt: serverTimestamp(),
+        serial,
+        hasSerial: true,
       });
-      unitsInserted++;
+
+      unitsInserted += 1;
+      ops += 1;
+
+      // Also bump stock by 1 for serialized, so master stock matches count
+      stockAddsByProductId.set(productRef.id, (stockAddsByProductId.get(productRef.id) || 0) + 1);
+
+      if (ops > 450) await flush();
+      continue;
+    }
+
+    // NON-SERIALIZED ROW -> NO units, only stock adjustment using stock field
+    const qty = toInt(r.stock);
+    if (qty > 0) {
+      stockAddsByProductId.set(productRef.id, (stockAddsByProductId.get(productRef.id) || 0) + qty);
     }
   }
 
-  // 4) Commit in chunks (<= 450 ops per batch)
-  const opGroups = chunkArray(ops, 450);
-
-  for (const og of opGroups) {
-    const batch = writeBatch(db);
-    for (const op of og) {
-      batch.set(op.ref, op.data, { merge: true });
-    }
-    await batch.commit();
+  // Apply stock increments (one write per product)
+  for (const [productId, add] of stockAddsByProductId.entries()) {
+    if (!add) continue;
+    batch.set(
+      doc(db, "products", productId),
+      { stock: increment(add), updatedAt: serverTimestamp() },
+      { merge: true }
+    );
+    ops += 1;
+    if (ops > 450) await flush();
   }
 
+  await flush();
   return { productsUpserted, unitsInserted };
 }
