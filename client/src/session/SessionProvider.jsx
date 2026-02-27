@@ -11,7 +11,7 @@ import {
 import { getTerminalConfig, clearTerminalConfig } from "../services/terminalConfig";
 
 import { db } from "../firebase";
-import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 const SessionContext = createContext(null);
 
@@ -34,6 +34,35 @@ function isManagerRole(role) {
   return normalizeRole(role) === "manager";
 }
 
+/**
+ * Best-effort session doc write (logging / troubleshooting only).
+ * This should NEVER block boot.
+ */
+async function tryWriteSessionDoc({ user, terminalConfig }) {
+  try {
+    if (!user?.uid) return;
+    if (user.uid === DEV_UID) return;
+    if (!terminalConfig?.tenantId || !terminalConfig?.shopId) return;
+
+    const ref = doc(db, "sessions", user.uid);
+    await setDoc(
+      ref,
+      {
+        uid: user.uid,
+        tenantId: terminalConfig.tenantId,
+        shopId: terminalConfig.shopId,
+        mode: terminalConfig.mode || "shared",
+        posAccountId: null,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (e) {
+    // do not block boot
+    console.warn("[SESSION WRITE skipped/failed]", e);
+  }
+}
+
 export function SessionProvider({ children }) {
   const [firebaseUser, setFirebaseUser] = useState(null);
 
@@ -44,7 +73,7 @@ export function SessionProvider({ children }) {
   const [tenant, setTenant] = useState(null);
   const [shop, setShop] = useState(null);
 
-  // ✅ user profile doc (users/{uid}) so role is available
+  // user profile doc (users/{uid}) so role is available
   const [userProfile, setUserProfile] = useState(null);
 
   // PIN-unlocked account (posAccounts)
@@ -58,37 +87,6 @@ export function SessionProvider({ children }) {
 
   const lastBootKeyRef = useRef("");
   const idleTimerRef = useRef(null);
-
-  async function ensureSessionDoc({ user, terminalConfig }) {
-    if (!user?.uid) return { ok: false, reason: "no-user" };
-    if (user.uid === DEV_UID) return { ok: true, reason: "dev" };
-    if (!terminalConfig?.tenantId || !terminalConfig?.shopId)
-      return { ok: false, reason: "no-terminal" };
-
-    const ref = doc(db, "sessions", user.uid);
-
-    // write
-    await setDoc(
-      ref,
-      {
-        uid: user.uid,
-        tenantId: terminalConfig.tenantId,
-        shopId: terminalConfig.shopId,
-        mode: terminalConfig.mode || "shared",
-        posAccountId: null,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    // read back (proves rules allow it)
-    const snap = await getDoc(ref);
-    if (!snap.exists()) return { ok: false, reason: "session-missing-after-write" };
-
-    const data = snap.data() || {};
-    const ok = !!data.tenantId;
-    return { ok, reason: ok ? "session-ok" : "session-tenantid-missing", data };
-  }
 
   function clearResolved() {
     setTenant(null);
@@ -104,7 +102,7 @@ export function SessionProvider({ children }) {
 
       // ✅ dev shortcut
       if (u?.uid === DEV_UID) {
-        setUserProfile({ uid: u.uid, role: "dev" });
+        setUserProfile({ uid: u.uid, role: "dev", tenantId: "" });
         return;
       }
 
@@ -129,7 +127,7 @@ export function SessionProvider({ children }) {
   }, []);
 
   // ---------------------------
-  // Boot: ensure session -> load tenant/shop
+  // Boot: load tenant/shop (NO hard dependency on sessions/{uid})
   // ---------------------------
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +147,7 @@ export function SessionProvider({ children }) {
         claimRole,
         profileRole,
         effectiveRole,
+        profileTenantId: userProfile?.tenantId || "",
       });
 
       try {
@@ -170,32 +169,38 @@ export function SessionProvider({ children }) {
           return;
         }
 
+        // OPTIONAL but recommended: if userProfile exists, enforce tenant match.
+        // This prevents cross-tenant access when a terminal is configured to a different tenant.
+        if (!devMode && userProfile?.tenantId && terminal?.tenantId && userProfile.tenantId !== terminal.tenantId) {
+          console.warn("[BOOT BLOCKED] userProfile.tenantId does not match terminal.tenantId", {
+            userTenantId: userProfile.tenantId,
+            terminalTenantId: terminal.tenantId,
+          });
+          clearResolved();
+          // keep terminal config but force lock
+          setPosAccount(null);
+          return;
+        }
+
         const bootKey = [
           devMode ? "dev" : "nodev",
           firebaseUser?.uid || "nouser",
           terminal.tenantId,
           terminal.shopId,
           terminal.mode || "shared",
+          userProfile?.tenantId || "noprofiletenant",
+          userProfile?.role || "noprofilero",
         ].join("|");
 
         if (lastBootKeyRef.current === bootKey) return;
         lastBootKeyRef.current = bootKey;
 
-        // ✅ ensure sessions/{uid} exists (tenant scoping)
-        if (!devMode) {
-          const res = await ensureSessionDoc({ user: firebaseUser, terminalConfig: terminal });
-          console.log("[SESSION ENSURE]", res);
-          if (!res.ok) {
-            clearResolved();
-            return;
-          }
-          if (cancelled) return;
+        // ✅ best-effort session write (do not gate boot)
+        if (!devMode && firebaseUser) {
+          tryWriteSessionDoc({ user: firebaseUser, terminalConfig: terminal });
         }
 
-        const [t, s] = await Promise.all([
-          loadTenant(terminal.tenantId),
-          loadShop(terminal.shopId),
-        ]);
+        const [t, s] = await Promise.all([loadTenant(terminal.tenantId), loadShop(terminal.shopId)]);
 
         if (cancelled) return;
         setTenant(t);
@@ -333,6 +338,7 @@ export function SessionProvider({ children }) {
       claimRole,
       profileRole,
       effectiveRole,
+      profileTenantId: userProfile?.tenantId || null,
       isOwnerOrManagerRole,
       isOwnerTerminal,
       isUnlocked,
@@ -345,6 +351,7 @@ export function SessionProvider({ children }) {
     claimRole,
     profileRole,
     effectiveRole,
+    userProfile?.tenantId,
     isOwnerOrManagerRole,
     isOwnerTerminal,
     isUnlocked,

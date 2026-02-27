@@ -1,6 +1,6 @@
 // client/src/pages/TerminalSetup.jsx
 import { useMemo, useState } from "react";
-import { loginManager, createShop, listShopsForTenant } from "../services/authService";
+import { loginManager, createShop, listShopsForTenant, logoutFirebase } from "../services/authService";
 import { setTerminalConfig } from "../services/terminalConfig";
 import { useSession } from "../session/SessionProvider";
 
@@ -100,7 +100,6 @@ function Btn({ children, onClick, disabled, variant = "primary", type = "button"
   );
 }
 
-
 const inputStyle = {
   width: "100%",
   padding: 12,
@@ -142,14 +141,24 @@ export default function TerminalSetup() {
     }
   }
 
-  async function onManagerLogin(e) {
+  async function onOwnerLogin(e) {
     e.preventDefault();
     setLoading(true);
     try {
-      const user = await loginManager(email.trim(), password);
-      const p = await loadUserProfile(user.uid);
+      const u = await loginManager(email, password);
 
-      if (!p?.active) throw new Error("User is inactive (users/{uid}.active != true).");
+      const p = await loadUserProfile(u.uid);
+
+      const role = String(p?.role || "").toLowerCase();
+      const isOwner = ["owner", "tenant_owner", "main_owner", "tenant"].includes(role);
+
+      if (!isOwner) {
+        await logoutFirebase();
+        alert("This screen requires an OWNER login.");
+        return;
+      }
+
+      if (p?.active === false) throw new Error("User is inactive (users/{uid}.active == false).");
       if (!p?.tenantId) throw new Error("Missing tenantId on users/{uid}.");
 
       setProfile(p);
@@ -211,7 +220,6 @@ export default function TerminalSetup() {
   return (
     <div style={{ minHeight: "100vh", background: "#f1f5f9" }}>
       <div style={{ maxWidth: 620, margin: "0 auto", padding: 18 }}>
-        {/* Header */}
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 22, fontWeight: 950, color: "#0f172a" }}>Register Terminal</div>
           <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75, color: "#0f172a" }}>
@@ -221,10 +229,10 @@ export default function TerminalSetup() {
 
         {!profile ? (
           <Card
-            title="Manager Login (one-time)"
-            subtitle="Sign in with an owner/manager account to register this device."
+            title="Owner Login (one-time)"
+            subtitle="Sign in with the OWNER account to register this device."
           >
-            <form onSubmit={onManagerLogin}>
+            <form onSubmit={onOwnerLogin}>
               <Field label="Email">
                 <input
                   value={email}
@@ -273,8 +281,8 @@ export default function TerminalSetup() {
                   label="Terminal Mode"
                   hint={
                     terminalMode === "owner"
-                      ? "Owner mode: no PIN screen. This device is for the owner/manager login."
-                      : "Shared mode: requires PIN unlock (salespeople/techs use pins)."
+                      ? "Owner mode: no PIN screen. This device is for owner email/password login."
+                      : "Shared mode: requires PIN unlock (sales/techs use PINs)."
                   }
                 >
                   <select
@@ -342,10 +350,3 @@ export default function TerminalSetup() {
     </div>
   );
 }
-
-
-
-
-
-
-

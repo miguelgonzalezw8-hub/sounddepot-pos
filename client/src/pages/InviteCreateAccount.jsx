@@ -1,37 +1,47 @@
 // client/src/pages/InviteCreateAccount.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
-import { auth } from "../firebase";
-import { acceptTenantInvite, loadInviteByToken } from "../services/authService";
+import { db } from "../firebase";
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { loadInviteByToken, sha256Hex } from "../services/authService";
 
 export default function InviteCreateAccount() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const token = params.get("token") || "";
+
+  const token = useMemo(() => String(params.get("token") || "").trim(), [params]);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [invite, setInvite] = useState(null);
+  const [error, setError] = useState("");
+
+  const [pin, setPin] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      try {
-        setLoading(true);
-        setError("");
+      setLoading(true);
+      setError("");
+      setInvite(null);
 
-        if (!token) throw new Error("Invalid or missing invite token.");
+      try {
+        if (!token) throw new Error("Missing invite token.");
 
         const inv = await loadInviteByToken(token);
         if (!inv) throw new Error("Invite not found or expired.");
 
-        if (cancelled) return;
-        setInvite(inv);
+        if (inv.active === false) throw new Error("Invite is inactive.");
+        if (String(inv.status || "") !== "pending") {
+          // already accepted — still allow setting pin if missing
+        }
+
+        if (!cancelled) setInvite(inv);
       } catch (e) {
-        console.error(e);
-        if (!cancelled) setError(e?.message || "Failed to load invite.");
+        if (!cancelled) setError(e?.message || String(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -42,150 +52,135 @@ export default function InviteCreateAccount() {
     };
   }, [token]);
 
-  return (
-    <div className="inventory-container">
-      <div
-        className="table-wrapper"
-        style={{ padding: 12, maxWidth: 520, margin: "0 auto" }}
-      >
-        <div
-          style={{
-            padding: 12,
-            background: "#ff0",
-            color: "#000",
-            fontWeight: 900,
-            marginBottom: 10,
-            borderRadius: 8,
-          }}
-        >
-          NEW INVITE PAGE v2
-        </div>
+  async function onSubmit() {
+    if (!token) return;
+    if (!invite) return;
 
-        {loading ? (
-          <div className="empty-state">Loading…</div>
-        ) : error ? (
-          <div className="empty-state" style={{ color: "#b91c1c" }}>
-            {error}
-          </div>
-        ) : (
-          <InviteCreateForm
-            invite={invite}
-            token={token}
-            onDone={() => navigate("/", { replace: true })}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function InviteCreateForm({ invite, token, onDone }) {
-  const invitedEmail = String(invite?.email || "").trim().toLowerCase();
-
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function onSubmit(e) {
-    e.preventDefault();
-    setError("");
-
-    if (!invitedEmail) return setError("Invite is missing an email.");
-    if (!password) return setError("Password is required.");
-    if (password.length < 6) return setError("Password must be at least 6 characters.");
-    if (password !== confirm) return setError("Passwords do not match.");
+    const p = String(pin || "").trim();
+    const c = String(confirm || "").trim();
+    if (p.length < 3) return alert("PIN must be at least 3 digits/characters.");
+    if (p !== c) return alert("PIN confirmation does not match.");
 
     setSaving(true);
     try {
-      // 1) Create auth user using the INVITED email only
-      const cred = await createUserWithEmailAndPassword(auth, invitedEmail, password);
+      const hash = await sha256Hex(p);
 
-      // 2) Optional display name
-      if (name) {
-        await updateProfile(cred.user, { displayName: name.trim() });
+      // 1) Update POS employee record (public rules allow pinHash write)
+      const posRef = doc(db, "posAccounts", token);
+
+      // sanity check so errors are clearer
+      const posSnap = await getDoc(posRef);
+      if (!posSnap.exists()) throw new Error("Employee record not found for this invite.");
+
+      await updateDoc(posRef, {
+        pinHash: hash,
+        pinSetAt: Date.now(),
+        updatedAt: serverTimestamp(),
+        active: true,
+      });
+
+      // 2) Mark invite accepted (public rules allow: status, acceptedAt, updatedAt)
+      const inviteRef = doc(db, "tenantInvites", token);
+      const invSnap = await getDoc(inviteRef);
+      if (invSnap.exists()) {
+        await updateDoc(inviteRef, {
+          status: "accepted",
+          acceptedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
       }
 
-      // 3) Accept invite (writes /users/{uid}, marks invite accepted)
-      await acceptTenantInvite(token);
-
-      onDone();
+      setDone(true);
     } catch (e) {
       console.error(e);
-      setError(e?.message || "Failed to create account.");
+      alert(e?.message?.includes("permission") ? "Permission denied (rules)." : (e?.message || String(e)));
     } finally {
       setSaving(false);
     }
   }
 
-  return (
-    <form onSubmit={onSubmit}>
-      <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 6 }}>
-        Create your account
+  if (loading) {
+    return (
+      <div className="inventory-container">
+        <div className="empty-state">Loading invite…</div>
       </div>
-      <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 12 }}>
-        Finish setting up your Sound Depot POS account
-      </div>
+    );
+  }
 
-      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 6 }}>Email</div>
-      <input
-        className="search-box"
-        value={invitedEmail}
-        readOnly
-        style={{ opacity: 0.85 }}
-      />
-
-      <input
-        className="search-box"
-        placeholder="Full name (optional)"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        autoComplete="name"
-        style={{ marginTop: 8 }}
-      />
-
-      <input
-        className="search-box"
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        autoComplete="new-password"
-        style={{ marginTop: 8 }}
-      />
-
-      <input
-        className="search-box"
-        type="password"
-        placeholder="Confirm password"
-        value={confirm}
-        onChange={(e) => setConfirm(e.target.value)}
-        autoComplete="new-password"
-        style={{ marginTop: 8 }}
-      />
-
-      {error && (
-        <div style={{ color: "#b91c1c", marginTop: 8, fontSize: 13 }}>
-          {error}
+  if (error) {
+    return (
+      <div className="inventory-container">
+        <div className="table-wrapper" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>Invite Error</div>
+          <div style={{ marginTop: 8, opacity: 0.85 }}>{error}</div>
+          <div style={{ marginTop: 12 }}>
+            <button className="search-box" onClick={() => navigate("/")}>Go Home</button>
+          </div>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      <button
-        className="search-box"
-        type="submit"
-        disabled={saving}
-        style={{ marginTop: 12, fontWeight: 900 }}
-      >
-        {saving ? "Creating account…" : "Create account & activate"}
-      </button>
-    </form>
+  const status = String(invite?.status || "pending");
+
+  return (
+    <div className="inventory-container">
+      <div className="table-wrapper" style={{ padding: 16, marginTop: 10 }}>
+        <div style={{ fontWeight: 900, fontSize: 18 }}>
+          {done ? "PIN set ✅" : "Set your POS PIN"}
+        </div>
+
+        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+          Invite: {invite?.email || "—"} • Role: {invite?.role || "sales"} • Status: {status}
+        </div>
+
+        {done ? (
+          <>
+            <div style={{ marginTop: 12, opacity: 0.85 }}>
+              You can now go to the terminal and unlock using your PIN.
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <button className="search-box" onClick={() => navigate("/")}>
+                Go to Login
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ marginTop: 14 }}>
+              <input
+                className="search-box search-box-wide"
+                placeholder="Enter PIN (min 3)"
+                type="password"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <input
+                className="search-box search-box-wide"
+                placeholder="Confirm PIN"
+                type="password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <button className="save-btn" onClick={onSubmit} disabled={saving} style={{ width: "100%" }}>
+                {saving ? "Saving..." : "Submit"}
+              </button>
+            </div>
+
+            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.65 }}>
+              This PIN is hashed and stored securely (no raw PIN stored).
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
-
-
-
-
-
-
-

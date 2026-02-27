@@ -1,3 +1,4 @@
+// firestore.rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -73,7 +74,7 @@ service cloud.firestore {
       return isOwner() || isManager();
     }
 
-    // ✅ IMPORTANT FIX:
+    // ✅ IMPORTANT:
     // Treat NULL or EMPTY shopIds as "all shops"
     function canUseShopId(shopId) {
       return hasUserProfile()
@@ -120,119 +121,6 @@ service cloud.firestore {
 
     function isOwnerTerminal() {
       return sessionMode() == "owner";
-    }
-
-    /* =========================
-       CORE COLLECTIONS
-       ========================= */
-
-    match /sessions/{uid} {
-      allow read, create, update, delete: if isDev()
-        || (signedIn() && request.auth.uid == uid);
-    }
-
-    match /users/{uid} {
-      // Self read OR owner/manager can read users in same tenant (via profile or session)
-      allow read: if isDev()
-        || (signedIn() && request.auth.uid == uid)
-        || (hasUserProfile() && isOwnerOrManager() && resource.data.tenantId == myTenantId())
-        || (hasSession() && isOwnerOrManager() && resource.data.tenantId == sessionTenantId());
-
-      // Keep client writes limited
-      allow create, update: if isDev()
-        || (signedIn() && request.auth.uid == uid);
-
-      allow delete: if isDev();
-    }
-
-    match /tenants/{tenantId} {
-      allow read: if isDev()
-        || (hasSession() && tenantId == sessionTenantId())
-        || (hasUserProfile() && tenantId == myTenantId());
-
-      allow write: if isDev();
-    }
-
-    // ✅ shops: READ supports session/profile
-    // ✅ shops: WRITE supports session/profile (MINIMAL SAFE ADD)
-    match /shops/{shopId} {
-      allow read: if isDev()
-        || (hasSession() && resource.data.tenantId == sessionTenantId())
-        || (hasUserProfile() && resource.data.tenantId == myTenantId() && canUseShopId(shopId));
-
-      allow create, update: if isDev()
-        || (
-          signedIn()
-          && isOwnerOrManager()
-          && request.resource.data.tenantId != null
-          && request.resource.data.tenantId != ""
-          && (
-            (hasUserProfile() && request.resource.data.tenantId == myTenantId())
-            || (hasSession() && request.resource.data.tenantId == sessionTenantId())
-          )
-        );
-
-      allow delete: if isDev();
-    }
-
-    match /posAccounts/{id} {
-      // READ (tenant-scoped)
-      allow read: if isDev()
-        || (hasUserProfile()
-            && resource.data.tenantId == myTenantId()
-            && canUseShopId(resource.data.shopId))
-        || (hasSession()
-            && resource.data.tenantId == sessionTenantId());
-
-      // ✅ WRITE: profile OR session
-      allow create, update: if isDev()
-        || (
-          signedIn()
-          && (isOwnerOrManager() || isOwnerTerminal())
-          && request.resource.data.tenantId != null
-          && request.resource.data.tenantId != ""
-          && request.resource.data.shopId != null
-          && request.resource.data.shopId != ""
-          && (
-            // profile path
-            (hasUserProfile()
-              && request.resource.data.tenantId == myTenantId()
-              && canUseShopId(request.resource.data.shopId))
-            // session path
-            || (hasSession()
-              && request.resource.data.tenantId == sessionTenantId()
-              && request.resource.data.shopId == sessionShopId())
-          )
-        );
-
-      allow delete: if isDev()
-        || (hasUserProfile()
-            && isOwner()
-            && resource.data.tenantId == myTenantId()
-            && canUseShopId(resource.data.shopId));
-    }
-
-    /* =========================
-       INVITES
-       ========================= */
-    match /tenantInvites/{inviteId} {
-      allow create: if isDev();
-
-      allow read: if isDev()
-        || (signedIn() && request.auth.token.email == resource.data.email)
-        || (!signedIn() && resource.data.active == true && resource.data.status == "pending");
-
-      allow update: if isDev()
-        || (signedIn() && request.auth.token.email == resource.data.email);
-
-      allow delete: if isDev();
-    }
-
-    /* =========================
-       EMAIL OUTBOX
-       ========================= */
-    match /mail/{id} {
-      allow read, write: if isDev();
     }
 
     /* =========================
@@ -298,6 +186,225 @@ service cloud.firestore {
     }
 
     /* =========================
+       POS INVITE HELPERS (public PIN setup)
+       - inviteId == posAccountId
+       ========================= */
+    function invitePath(inviteId) {
+      return /databases/$(database)/documents/tenantInvites/$(inviteId);
+    }
+
+    function publicInviteIsPendingForPosAccount(posAccountId) {
+      return exists(invitePath(posAccountId))
+        && get(invitePath(posAccountId)).data.active == true
+        && get(invitePath(posAccountId)).data.status == "pending";
+    }
+
+    function publicPosAccountAllowedKeys() {
+      // Only allow public setting of PIN hash and timestamps
+      return ["pinHash", "pinSetAt", "updatedAt"];
+    }
+
+    /* =========================
+       CORE COLLECTIONS
+       ========================= */
+
+    match /sessions/{uid} {
+      allow read, create, update, delete: if isDev()
+        || (signedIn() && request.auth.uid == uid);
+    }
+
+    match /users/{uid} {
+      // Self read OR owner/manager can read users in same tenant (via profile or session)
+      allow read: if isDev()
+        || (signedIn() && request.auth.uid == uid)
+        || (hasUserProfile() && isOwnerOrManager() && resource.data.tenantId == myTenantId())
+        || (hasSession() && isOwnerOrManager() && resource.data.tenantId == sessionTenantId());
+
+      // Keep client writes limited
+      allow create, update: if isDev()
+        || (signedIn() && request.auth.uid == uid);
+
+      allow delete: if isDev();
+    }
+
+    match /tenants/{tenantId} {
+      allow read: if isDev()
+        || (hasSession() && tenantId == sessionTenantId())
+        || (hasUserProfile() && tenantId == myTenantId());
+
+      allow write: if isDev();
+      allow delete: if isDev();
+    }
+
+    // shops: READ supports session/profile
+    // shops: WRITE supports session/profile
+    match /shops/{shopId} {
+      allow read: if isDev()
+        || (hasSession() && resource.data.tenantId == sessionTenantId())
+        || (hasUserProfile() && resource.data.tenantId == myTenantId() && canUseShopId(shopId));
+
+      allow create, update: if isDev()
+        || (
+          signedIn()
+          && isOwnerOrManager()
+          && request.resource.data.tenantId != null
+          && request.resource.data.tenantId != ""
+          && (
+            (hasUserProfile() && request.resource.data.tenantId == myTenantId())
+            || (hasSession() && request.resource.data.tenantId == sessionTenantId())
+          )
+        );
+
+      allow delete: if isDev();
+    }
+
+    /* =========================
+       POS ACCOUNTS (PIN employees)
+       - Public invite link can read/update ONLY its own record (id == inviteId)
+       ========================= */
+    match /posAccounts/{id} {
+      // READ
+      allow read: if isDev()
+        || (hasUserProfile()
+            && resource.data.tenantId == myTenantId()
+            && canUseShopId(resource.data.shopId))
+        || (hasSession()
+            && resource.data.tenantId == sessionTenantId())
+        || (!signedIn() && publicInviteIsPendingForPosAccount(id));
+
+      // CREATE
+      allow create: if isDev()
+        || (
+          signedIn()
+          && (isOwnerOrManager() || isOwnerTerminal())
+          && request.resource.data.tenantId != null
+          && request.resource.data.tenantId != ""
+          && request.resource.data.shopId != null
+          && request.resource.data.shopId != ""
+          && (
+            (hasUserProfile()
+              && request.resource.data.tenantId == myTenantId()
+              && canUseShopId(request.resource.data.shopId))
+            || (hasSession()
+              && request.resource.data.tenantId == sessionTenantId()
+              && request.resource.data.shopId == sessionShopId())
+          )
+        );
+
+      // UPDATE
+      allow update: if isDev()
+        || (
+          signedIn()
+          && (isOwnerOrManager() || isOwnerTerminal())
+          && request.resource.data.tenantId != null
+          && request.resource.data.tenantId != ""
+          && request.resource.data.shopId != null
+          && request.resource.data.shopId != ""
+          && (
+            (hasUserProfile()
+              && request.resource.data.tenantId == myTenantId()
+              && canUseShopId(request.resource.data.shopId))
+            || (hasSession()
+              && request.resource.data.tenantId == sessionTenantId()
+              && request.resource.data.shopId == sessionShopId())
+          )
+        )
+        || (
+          // ✅ PUBLIC invite can set pinHash ONLY
+          !signedIn()
+          && publicInviteIsPendingForPosAccount(id)
+          // lock identity fields
+          && request.resource.data.tenantId == resource.data.tenantId
+          && request.resource.data.shopId == resource.data.shopId
+          && request.resource.data.name == resource.data.name
+          && request.resource.data.role == resource.data.role
+          // require pinHash
+          && request.resource.data.pinHash != null
+          && request.resource.data.pinHash != ""
+          // only allow safe keys
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(publicPosAccountAllowedKeys())
+        );
+
+      // ✅ DELETE: profile owner OR owner-terminal session (shop-limited)
+      allow delete: if isDev()
+        || (
+          hasUserProfile()
+          && isOwner()
+          && resource.data.tenantId == myTenantId()
+          && canUseShopId(resource.data.shopId)
+        )
+        || (
+          hasSession()
+          && isOwnerTerminal()
+          && resource.data.tenantId == sessionTenantId()
+          && resource.data.shopId == sessionShopId()
+        );
+    }
+
+    /* =========================
+       INVITES (PIN setup)
+       tenantInvites/{inviteId}
+       - Signed-in owner/manager can create invites for their tenant
+       - Public can read pending
+       - Public can update pending -> accepted only
+       ========================= */
+    match /tenantInvites/{inviteId} {
+
+      // create invite doc (id can be posAccountId or random)
+      allow create: if isDev()
+        || (
+          signedIn()
+          && (isOwnerOrManager() || isOwnerTerminal())
+          && request.resource.data.tenantId != null
+          && request.resource.data.tenantId != ""
+          && request.resource.data.email != null
+          && request.resource.data.email != ""
+          && request.resource.data.status == "pending"
+          && (
+            (hasUserProfile() && request.resource.data.tenantId == myTenantId())
+            || (hasSession() && request.resource.data.tenantId == sessionTenantId())
+          )
+        );
+
+      allow read: if isDev()
+        || (signedIn() && request.auth.token.email == resource.data.email)
+        || (!signedIn() && resource.data.active == true && resource.data.status == "pending");
+
+      allow update: if isDev()
+        || (signedIn() && request.auth.token.email == resource.data.email)
+        || (
+          // ✅ public link can only mark accepted
+          !signedIn()
+          && resource.data.active == true
+          && resource.data.status == "pending"
+          // preserve identity fields
+          && request.resource.data.tenantId == resource.data.tenantId
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.active == resource.data.active
+          && request.resource.data.status == "accepted"
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "acceptedAt", "updatedAt"])
+        );
+
+      allow delete: if isDev()
+        || (
+          signedIn()
+          && (isOwnerOrManager() || isOwnerTerminal())
+          && (
+            (hasUserProfile() && resource.data.tenantId == myTenantId())
+            || (hasSession() && resource.data.tenantId == sessionTenantId())
+          )
+        );
+    }
+
+    /* =========================
+       EMAIL OUTBOX
+       ========================= */
+    match /mail/{id} {
+      allow read, write: if isDev();
+    }
+
+    /* =========================
        TENANT-SCOPED COLLECTIONS
        ========================= */
     match /brands/{id} {
@@ -312,7 +419,6 @@ service cloud.firestore {
       allow update, delete: if allowTenantUpdateDelete();
     }
 
-    // ✅ NEW: serialized units written by importer
     // inventoryUnits/{unitId} docs must include tenantId field
     match /inventoryUnits/{id} {
       allow read: if allowTenantRead();
@@ -326,6 +432,66 @@ service cloud.firestore {
     }
 
     match /customers/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /installers/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /heldReceipts/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /receipts/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /orders/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /orderItems/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /productUnits/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /inventory/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /backorders/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /quotes/{id} {
+      allow read: if allowTenantRead();
+      allow create: if allowTenantCreate();
+      allow update, delete: if allowTenantUpdateDelete();
+    }
+
+    match /tasks/{id} {
       allow read: if allowTenantRead();
       allow create: if allowTenantCreate();
       allow update, delete: if allowTenantUpdateDelete();
@@ -393,71 +559,9 @@ service cloud.firestore {
         || (signedIn() && !isLegacySecurityDoc() && !isTenantSecurityDoc() && isOwnerOrManager() && settingsTenantMatchesResource());
     }
 
-    match /installers/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
-    match /heldReceipts/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
-    match /receipts/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
-    match /orders/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
-    match /orderItems/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
-    // ✅ If your app uses productUnits, keep it.
-    match /productUnits/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
-    match /inventory/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
-    match /backorders/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
-    match /quotes/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
-    match /tasks/{id} {
-      allow read: if allowTenantRead();
-      allow create: if allowTenantCreate();
-      allow update, delete: if allowTenantUpdateDelete();
-    }
-
     /* =========================
        SHOP SUBCOLLECTIONS
        ========================= */
-
     function allowShopDocRead(shopId) {
       return isDev()
         || (hasSession() && shopId == sessionShopId())

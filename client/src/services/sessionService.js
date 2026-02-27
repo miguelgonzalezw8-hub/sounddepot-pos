@@ -1,3 +1,4 @@
+// client/src/services/sessionService.js
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
 
@@ -17,10 +18,3 @@ export async function writeSession({ tenantId, shopId, posAccountId = null }) {
     { merge: true }
   );
 }
-
-
-
-
-
-
-

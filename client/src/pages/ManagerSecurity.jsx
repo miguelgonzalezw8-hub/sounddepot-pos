@@ -28,7 +28,6 @@ export default function ManagerSecurity() {
 
   const uid = auth.currentUser?.uid || null;
 
-  // ✅ tenant-scoped security doc (matches your multi-tenant approach)
   const securityDocId = tenantId ? `security_${tenantId}` : "";
   const securityRef = securityDocId ? doc(db, "settings", securityDocId) : null;
 
@@ -36,7 +35,7 @@ export default function ManagerSecurity() {
     (async () => {
       try {
         if (!uid) return;
-        if (!tenantId) return; // terminal not configured yet
+        if (!tenantId) return;
         if (!securityRef) return;
 
         const snap = await getDoc(securityRef);
@@ -46,7 +45,7 @@ export default function ManagerSecurity() {
         console.error(e);
       }
     })();
-  }, [uid, tenantId, securityDocId]); // keep deps simple
+  }, [uid, tenantId, securityDocId]);
 
   const savePin = async () => {
     if (!uid) return alert("Not signed in.");
@@ -64,14 +63,14 @@ export default function ManagerSecurity() {
 
       if (!snap.exists()) {
         await setDoc(securityRef, {
-          tenantId, // ✅ store tenantId on doc for rules / auditing
+          tenantId,
           managerPins: { [uid]: hash },
           updatedAt: serverTimestamp(),
           createdAt: serverTimestamp(),
         });
       } else {
         await updateDoc(securityRef, {
-          tenantId, // keep it consistent
+          tenantId,
           [`managerPins.${uid}`]: hash,
           updatedAt: serverTimestamp(),
         });
@@ -142,10 +141,3 @@ export default function ManagerSecurity() {
     </div>
   );
 }
-
-
-
-
-
-
-

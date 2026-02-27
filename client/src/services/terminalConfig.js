@@ -1,5 +1,4 @@
 // client/src/services/terminalConfig.js
-
 const KEY = "sd_terminal_v1";
 
 export function getTerminalConfig() {
@@ -18,10 +17,3 @@ export function setTerminalConfig(config) {
 export function clearTerminalConfig() {
   localStorage.removeItem(KEY);
 }
-
-
-
-
-
-
-
