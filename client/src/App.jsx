@@ -14,6 +14,7 @@ import InventoryImport from "./pages/InventoryImport";
 import { SessionProvider, useSession } from "./session/SessionProvider";
 import TerminalSetup from "./pages/TerminalSetup";
 import LockScreen from "./pages/LockScreen";
+import Login from "./components/Login";
 
 /* ✅ LOGOUT (ADDED) */
 import { logoutFirebase } from "./services/authService";
@@ -34,6 +35,7 @@ import ManagerMenu from "./pages/ManagerMenu";
 import BackorderCenter from "./pages/BackorderCenter";
 import EmployeesAdmin from "./pages/EmployeesAdmin";
 import InviteCreateAccount from "./pages/InviteCreateAccount";
+import OwnerLogin from "./pages/OwnerLogin";
 
 /* ✅ DEV PAGES */
 import DevMenu from "./pages/DevMenu";
@@ -166,8 +168,10 @@ function SimpleBarList({ rows = [] }) {
 /* ================= DASHBOARD ================= */
 function Dashboard() {
   const navigate = useNavigate();
-  const { terminal, booting } = useSession();
-  const tenantId = terminal?.tenantId;
+  const { terminal, booting, userProfile } = useSession();
+
+  // ✅ tenantId comes from terminal (shared terminals) OR owner profile (owner logins)
+  const tenantId = terminal?.tenantId || userProfile?.tenantId || null;
 
   const [ordersToday, setOrdersToday] = useState([]);
   const [ordersMTD, setOrdersMTD] = useState([]);
@@ -670,7 +674,7 @@ function AppInner() {
                 </RequireManagerPin>
               }
             />
-
+            <Route path="/owner-login" element={<OwnerLogin />} />
             <Route path="/manager" element={<ManagerMenu />} />
             <Route path="/manager/security" element={<ManagerSecurity />} />
             <Route
@@ -737,6 +741,12 @@ function TerminalGate() {
     hash.startsWith("#/invite") ||
     hash.startsWith("#/accept-invite");
 
+  // ✅ allow owner login route even if terminal isn't registered yet
+  const isOwnerLoginRoute =
+    path === "/owner-login" ||
+    path.startsWith("/owner-login") ||
+    hash.startsWith("#/owner-login");
+
   if (booting) return <div style={{ padding: 20 }}>Loading…</div>;
 
   if (devMode) return <AppInner />;
@@ -744,9 +754,20 @@ function TerminalGate() {
   // allow invite flow without terminal registration / auth / pin
   if (isOnboardingRoute) return <AppInner />;
 
-  if (!terminal?.tenantId || !terminal?.shopId) return <TerminalSetup />;
+  // ✅ allow owner login page without terminal registration / auth / pin
+  if (isOwnerLoginRoute) return <AppInner />;
 
-  if (!firebaseUser) return <TerminalSetup />;
+  // If terminal is NOT configured:
+if (!terminal?.tenantId || !terminal?.shopId) {
+  // If someone is signed in (owner/manager), let them into the app without terminal config
+  if (firebaseUser) return <AppInner />;
+
+  // Otherwise show the clean entry screen (Product Key vs Owner Login)
+  return <Login />;
+}
+
+// If terminal IS configured but not signed in (shared terminals need auth for rules):
+if (!firebaseUser) return <Login />;
 
   // ✅ OWNER TERMINAL: signed-in user gets in without PIN
   if (terminal?.mode === "owner") return <AppInner />;
@@ -783,12 +804,3 @@ export default function App() {
     </SessionProvider>
   );
 }
-
-
-
-
-
-
-
-
-

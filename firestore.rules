@@ -239,9 +239,10 @@ service cloud.firestore {
     // shops: READ supports session/profile
     // shops: WRITE supports session/profile
     match /shops/{shopId} {
-      allow read: if isDev()
-        || (hasSession() && resource.data.tenantId == sessionTenantId())
-        || (hasUserProfile() && resource.data.tenantId == myTenantId() && canUseShopId(shopId));
+  allow read: if isDev()
+    || (hasUserProfile() && isOwnerOrManager() && resource.data.tenantId == myTenantId())
+    || (hasSession() && isOwnerOrManager() && resource.data.tenantId == sessionTenantId());
+
 
       allow create, update: if isDev()
         || (

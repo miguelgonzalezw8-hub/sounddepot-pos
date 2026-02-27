@@ -22,7 +22,13 @@ import {
 } from "firebase/firestore";
 
 import { auth, db } from "../firebase";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
+export async function resolveTenantIdFromProductKey({ productKey }) {
+  const fn = httpsCallable(getFunctions(), "resolveTenantFromProductKey");
+  const res = await fn({ productKey });
+  return res.data; // expect { tenantId: "..." }
+}
 /* ================= AUTH ================= */
 
 export function watchAuth(cb) {

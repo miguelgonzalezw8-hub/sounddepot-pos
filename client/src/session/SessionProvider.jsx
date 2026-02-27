@@ -1,5 +1,6 @@
 // client/src/session/SessionProvider.jsx
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   watchAuth,
   loadTenant,
@@ -9,7 +10,6 @@ import {
   logoutFirebase,
 } from "../services/authService";
 import { getTerminalConfig, clearTerminalConfig } from "../services/terminalConfig";
-
 import { db } from "../firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
@@ -64,6 +64,8 @@ async function tryWriteSessionDoc({ user, terminalConfig }) {
 }
 
 export function SessionProvider({ children }) {
+  const location = useLocation();
+
   const [firebaseUser, setFirebaseUser] = useState(null);
 
   // terminal config (persisted)
@@ -139,6 +141,19 @@ export function SessionProvider({ children }) {
       const profileRole = normalizeRole(userProfile?.role || "");
       const effectiveRole = claimRole || profileRole;
 
+      const path = (location.pathname || "").toLowerCase();
+      const hash = (location.hash || "").toLowerCase();
+
+      const isOwnerLoginRoute =
+        path === "/owner-login" ||
+        path.startsWith("/owner-login") ||
+        hash.startsWith("#/owner-login");
+
+      const isTerminalSetupRoute =
+        path === "/terminal-setup" ||
+        path.startsWith("/terminal-setup") ||
+        hash.startsWith("#/terminal-setup");
+
       console.log("[BOOT CHECK]", {
         uid: firebaseUser?.uid,
         devMode,
@@ -148,6 +163,10 @@ export function SessionProvider({ children }) {
         profileRole,
         effectiveRole,
         profileTenantId: userProfile?.tenantId || "",
+        path,
+        hash,
+        isOwnerLoginRoute,
+        isTerminalSetupRoute,
       });
 
       try {
@@ -157,8 +176,9 @@ export function SessionProvider({ children }) {
           return;
         }
 
-        // If terminal not configured, nothing to load
-        if (!terminal?.tenantId || !terminal?.shopId) {
+        // ✅ IMPORTANT: If terminal not configured, nothing to load.
+        // Also bypass tenant/shop reads on owner login + terminal setup screens.
+        if (!terminal?.tenantId || !terminal?.shopId || isOwnerLoginRoute || isTerminalSetupRoute) {
           clearResolved();
           return;
         }
@@ -171,7 +191,12 @@ export function SessionProvider({ children }) {
 
         // OPTIONAL but recommended: if userProfile exists, enforce tenant match.
         // This prevents cross-tenant access when a terminal is configured to a different tenant.
-        if (!devMode && userProfile?.tenantId && terminal?.tenantId && userProfile.tenantId !== terminal.tenantId) {
+        if (
+          !devMode &&
+          userProfile?.tenantId &&
+          terminal?.tenantId &&
+          userProfile.tenantId !== terminal.tenantId
+        ) {
           console.warn("[BOOT BLOCKED] userProfile.tenantId does not match terminal.tenantId", {
             userTenantId: userProfile.tenantId,
             terminalTenantId: terminal.tenantId,
@@ -217,7 +242,7 @@ export function SessionProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [devMode, firebaseUser, terminal?.tenantId, terminal?.shopId, terminal?.mode, userProfile]);
+  }, [devMode, firebaseUser, terminal?.tenantId, terminal?.shopId, terminal?.mode, userProfile, location.pathname, location.hash]);
 
   async function doUnlock(pin) {
     if (!terminal?.tenantId || !terminal?.shopId) return null;
