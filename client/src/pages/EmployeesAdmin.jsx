@@ -1,4 +1,4 @@
-// client/src/pages/EmployeesAdmin.jsx
+﻿// client/src/pages/EmployeesAdmin.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSession } from "../session/SessionProvider";
@@ -14,13 +14,10 @@ import {
 } from "../services/authService";
 import { writeSession } from "../services/sessionService";
 
-// ✅ for email-login invites (Firebase Auth login)
-import { getFunctions, httpsCallable } from "firebase/functions";
-
 export default function EmployeesAdmin() {
   const navigate = useNavigate();
 
-  // ✅ include firebaseUser so owner-terminal “bypass” matches rules (signedIn required)
+  // include firebaseUser so owner-terminal bypass matches rules (signedIn required)
   const { terminal, posAccount, devMode, firebaseUser, userProfile } = useSession();
   const tenantId = terminal?.tenantId || "";
   const shopId = terminal?.shopId || "";
@@ -40,29 +37,21 @@ export default function EmployeesAdmin() {
   }, [posAccount?.role]);
 
   /**
-   * ✅ Align UI with rules:
-   * - Writes require signedIn() OR dev (rules)
-   * - Owner terminal is not a “no-auth” bypass for Firestore writes
+   * Align UI with rules:
+   * - Writes require signedIn() OR dev
+   * - Owner terminal requires firebaseUser signed in
    */
   const canEdit = devMode || (isOwnerTerminal && !!firebaseUser) || isManager;
 
   /**
-   * ✅ Align delete with rules:
-   * Your rules only allow delete for dev OR owner (not manager).
+   * Delete: dev OR owner (posAccount owner) OR firebase owner
    */
   const profileRole = String(userProfile?.role || "").toLowerCase();
-  const firebaseIsOwner =
-   ["owner", "tenant_owner", "main_owner", "tenant"].includes(profileRole);
-
+  const firebaseIsOwner = ["owner", "tenant_owner", "main_owner", "tenant"].includes(profileRole);
   const canDelete = devMode || isOwner || (firebaseIsOwner && !!firebaseUser);
-  /**
-   * ✅ Align PIN-link invite with rules:
-   * Your rules currently only allow:
-   * - tenantInvites create: isDev()
-   * - mail write: isDev()
-   * So only dev can do “Send PIN Link” until we move it to a Cloud Function.
-   */
-  const canSendPinLinkInvite = devMode;
+
+  // ✅ allow PIN link invites for anyone who can edit (now that rules allow /mail create)
+  const canSendPinLinkInvite = canEdit;
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -82,13 +71,6 @@ export default function EmployeesAdmin() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("sales");
   const [invitingPin, setInvitingPin] = useState(false);
-
-  // =========================
-  // EMAIL LOGIN INVITE FORM (Cloud Function)
-  // =========================
-  const [loginInviteEmail, setLoginInviteEmail] = useState("");
-  const [loginInviteRole, setLoginInviteRole] = useState("sales");
-  const [invitingLogin, setInvitingLogin] = useState(false);
 
   async function refresh() {
     if (!tenantId || !shopId) return;
@@ -145,7 +127,7 @@ export default function EmployeesAdmin() {
         role: r,
         active: true,
         createdBy: posAccount?.id || null,
-        pin: String(pin || "").trim(), // ✅ hashes in authService
+        pin: String(pin || "").trim(), // hashes in authService
       });
 
       setName("");
@@ -161,16 +143,11 @@ export default function EmployeesAdmin() {
   }
 
   // =========================
-  // PIN LINK INVITE (DEV ONLY w/ current rules)
+  // PIN LINK INVITE
   // =========================
   async function onInvitePinSetup() {
     if (!canEdit) return alert("Not authorized.");
-    if (!canSendPinLinkInvite) {
-      return alert(
-        "PIN Link Invite is DEV-only right now (rules: tenantInvites + mail are dev-only). " +
-          "Use Direct PIN, or we can move invite sending to a Cloud Function so managers/owners can send it."
-      );
-    }
+    if (!canSendPinLinkInvite) return alert("Not authorized.");
     if (!tenantId || !shopId) return alert("Terminal not configured.");
 
     const nm = String(inviteName || "").trim();
@@ -210,7 +187,7 @@ export default function EmployeesAdmin() {
       await sendInviteEmail({
         to: em,
         inviteId: posId,
-        appUrl: window.location.origin,
+        appUrl: "https://volterahq.com",
         tenantName: "",
         accountNumber: "",
       });
@@ -249,7 +226,7 @@ export default function EmployeesAdmin() {
   }
 
   // =========================
-  // CHANGE PIN (writes pinHash)
+  // CHANGE PIN
   // =========================
   async function onChangePin(emp) {
     if (!canEdit) return alert("Not authorized.");
@@ -317,59 +294,24 @@ export default function EmployeesAdmin() {
     }
   }
 
-  // =========================
-  // EMAIL LOGIN INVITE (Firebase Auth via Cloud Function)
-  // =========================
-  async function onInviteLogin() {
-    if (!canEdit) return alert("Not authorized.");
-    if (!tenantId || !shopId) return alert("Terminal not configured.");
-
-    const em = String(loginInviteEmail || "").trim().toLowerCase();
-    if (!em || !em.includes("@")) return alert("Enter a valid email.");
-
-    const r = String(loginInviteRole || "").trim().toLowerCase();
-    if (!["sales", "installer", "manager", "owner"].includes(r)) {
-      return alert("Role must be one of: sales, installer, manager, owner");
-    }
-
-    setInvitingLogin(true);
-    try {
-      const fn = httpsCallable(getFunctions(), "inviteEmployeeLogin");
-      await fn({
-        tenantId,
-        email: em,
-        role: r,
-        shopIds: shopId ? [shopId] : [],
-        appUrl: window.location.origin,
-      });
-
-      alert("Login invite sent.");
-      setLoginInviteEmail("");
-      setLoginInviteRole("sales");
-    } catch (e) {
-      console.error(e);
-      alert(e?.message || String(e));
-    } finally {
-      setInvitingLogin(false);
-    }
-  }
-
   return (
     <div className="inventory-container">
       <div className="search-row" style={{ display: "flex", gap: 8 }}>
         <button className="search-box" onClick={() => navigate(-1)} style={{ width: 120 }}>
           ← Back
         </button>
+
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 900, fontSize: 18 }}>Employees</div>
           <div style={{ fontSize: 12, opacity: 0.7 }}>
             Create PINs and manage POS access for this shop
           </div>
-          <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
-            tenantId: {tenantId || "—"} • shopId: {shopId || "—"} • mode: {terminal?.mode || "—"}
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
-            signedIn: {firebaseUser ? "Yes" : "No"} • canEdit: {canEdit ? "Yes" : "No"}
+
+          <div style={{ fontSize: 13, marginTop: 6, fontWeight: 700, opacity: 0.85 }}>
+            Shop —{" "}
+            <span style={{ fontFamily: "monospace", fontWeight: 800 }}>
+              {shopId ? shopId.slice(-6) : "—"}
+            </span>
           </div>
         </div>
       </div>
@@ -409,37 +351,38 @@ export default function EmployeesAdmin() {
             </div>
 
             {/* PIN link invite */}
-            <div style={{ marginTop: 14, fontWeight: 800 }}>
-              Invite PIN Setup Link{" "}
-              <span style={{ fontSize: 12, opacity: 0.7 }}>
-                (dev-only with current rules)
-              </span>
-            </div>
+            <div style={{ marginTop: 14, fontWeight: 800 }}>Invite PIN Setup Link</div>
             <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
-              This requires Firestore writes to <b>tenantInvites</b> and <b>mail</b>. Your rules currently
-              allow those only for DEV. We can move this to a Cloud Function to make it owner/manager-safe.
+              Sends a setup link so the employee can set their PIN. If email fails, you can still use Direct PIN.
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.6fr 1fr auto", gap: 8, marginTop: 8 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1.2fr 1.6fr 1fr auto",
+                gap: 8,
+                marginTop: 8,
+              }}
+            >
               <input
                 className="search-box"
                 placeholder="Employee name"
                 value={inviteName}
                 onChange={(e) => setInviteName(e.target.value)}
-                disabled={!canSendPinLinkInvite || invitingPin}
+                disabled={invitingPin}
               />
               <input
                 className="search-box"
                 placeholder="Employee email (name@domain.com)"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
-                disabled={!canSendPinLinkInvite || invitingPin}
+                disabled={invitingPin}
               />
               <select
                 className="search-box"
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value)}
-                disabled={!canSendPinLinkInvite || invitingPin}
+                disabled={invitingPin}
               >
                 <option value="sales">sales</option>
                 <option value="manager">manager</option>
@@ -448,45 +391,10 @@ export default function EmployeesAdmin() {
               <button
                 className="search-box"
                 style={{ width: 160 }}
-                disabled={!canSendPinLinkInvite || invitingPin}
+                disabled={invitingPin}
                 onClick={onInvitePinSetup}
               >
                 {invitingPin ? "Sending..." : "Send PIN Link"}
-              </button>
-            </div>
-
-            {/* Email login invite (cloud function) */}
-            <div style={{ marginTop: 14, fontWeight: 800 }}>Invite Email Login (optional)</div>
-            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
-              Sends a “Create Account” link for Firebase Auth login (email/password). Use <b>installer</b> for the companion app.
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr auto", gap: 8, marginTop: 8 }}>
-              <input
-                className="search-box"
-                placeholder="Employee email (name@domain.com)"
-                value={loginInviteEmail}
-                onChange={(e) => setLoginInviteEmail(e.target.value)}
-                disabled={invitingLogin}
-              />
-              <select
-                className="search-box"
-                value={loginInviteRole}
-                onChange={(e) => setLoginInviteRole(e.target.value)}
-                disabled={invitingLogin}
-              >
-                <option value="sales">sales</option>
-                <option value="installer">installer</option>
-                <option value="manager">manager</option>
-                <option value="owner">owner</option>
-              </select>
-              <button
-                className="search-box"
-                style={{ width: 140 }}
-                disabled={invitingLogin}
-                onClick={onInviteLogin}
-              >
-                {invitingLogin ? "Sending..." : "Send Login Invite"}
               </button>
             </div>
           </>
@@ -520,9 +428,7 @@ export default function EmployeesAdmin() {
                   </td>
                   <td>{emp.role || "sales"}</td>
                   <td>{emp.active ? "Yes" : "No"}</td>
-                  <td style={{ fontSize: 12, opacity: 0.75 }}>
-                    {emp.pinHash ? "✅ set" : "—"}
-                  </td>
+                  <td style={{ fontSize: 12, opacity: 0.75 }}>{emp.pinHash ? "✅ set" : "—"}</td>
                   <td>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button className="search-box" style={{ width: 120 }} onClick={() => onChangePin(emp)}>

@@ -350,7 +350,9 @@ service cloud.firestore {
        - Public can update pending -> accepted only
        ========================= */
     match /tenantInvites/{inviteId} {
-
+    
+    allow list: if false;
+    
       // create invite doc (id can be posAccountId or random)
       allow create: if isDev()
         || (
@@ -401,10 +403,25 @@ service cloud.firestore {
     /* =========================
        EMAIL OUTBOX
        ========================= */
-    match /mail/{id} {
-      allow read, write: if isDev();
-    }
+      match /mail/{id} {
+        // Keep reads dev-only (so nobody can browse emails)
+        allow read: if isDev();
 
+        // Allow ONLY create (enqueue) by owner/manager/dev
+        // Supports either profile-bootstrap (OwnerLogin) OR session-based (terminal mode)
+        allow create: if isDev()
+          || (
+            signedIn()
+            && (
+            (hasUserProfile() && isOwnerOrManager())
+         || (hasSession() && isOwnerOrManager())
+         || (hasSession() && isOwnerTerminal())
+        )
+      );
+
+  // Do NOT allow clients to edit/delete queued mail docs
+  allow update, delete: if isDev();
+}
     /* =========================
        TENANT-SCOPED COLLECTIONS
        ========================= */

@@ -29,6 +29,7 @@ export async function resolveTenantIdFromProductKey({ productKey }) {
   const res = await fn({ productKey });
   return res.data; // expect { tenantId: "..." }
 }
+
 /* ================= AUTH ================= */
 
 export function watchAuth(cb) {
@@ -385,30 +386,56 @@ export async function sendInviteEmail({
   if (!inviteId) throw new Error("Missing inviteId");
   if (!appUrl) throw new Error("Missing appUrl (your hosted site URL)");
 
-  const link = `${String(appUrl).replace(/\/$/, "")}/invite?token=${encodeURIComponent(inviteId)}`;
+  const base = String(appUrl).replace(/\/$/, "");
+  const link = `${base}/invite?token=${encodeURIComponent(inviteId)}`;
 
   const subject = "Set your POS PIN";
-  const html = `
-    <div style="font-family:Arial,sans-serif;line-height:1.4">
-      <h2 style="margin:0 0 10px 0">You're invited${tenantName ? ` to ${tenantName}` : ""}</h2>
-      <p>Account Number: <b>${accountNumber || "—"}</b></p>
-      <p>Click below to set your PIN for terminal use:</p>
-      <p>
-        <a href="${link}" style="display:inline-block;padding:10px 14px;background:#111827;color:#fff;text-decoration:none;border-radius:8px">
-          Set PIN
-        </a>
-      </p>
-      <p style="font-size:12px;color:#6b7280">
-        If the button doesn't work, copy/paste this link:<br/>
-        ${link}
-      </p>
-    </div>
-  `;
 
+  const text = `You're invited to VolteraHQ POS${tenantName ? ` (${tenantName})` : ""}
+
+Account Number: ${accountNumber || "—"}
+
+Set your PIN here:
+${link}
+
+If you did not request this, you can ignore this email.
+
+VolteraHQ
+support@volterahq.com
+`;
+
+  const html = `
+<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111">
+  <h2 style="margin:0 0 10px 0">You're invited${tenantName ? ` to ${tenantName}` : " to VolteraHQ POS"}</h2>
+
+  <p style="margin:0 0 8px 0">Account Number: <b>${accountNumber || "—"}</b></p>
+
+  <p style="margin:0 0 12px 0">Click below to set your PIN for terminal use:</p>
+
+  <p style="margin:0 0 14px 0">
+    <a href="${link}" style="display:inline-block;padding:10px 14px;background:#111827;color:#fff;text-decoration:none;border-radius:8px">
+      Set PIN
+    </a>
+  </p>
+
+  <p style="font-size:12px;color:#6b7280;margin:0">
+    If the button doesn't work, copy/paste this link:<br/>
+    ${link}
+  </p>
+
+  <hr style="border:none;border-top:1px solid #eee;margin:16px 0"/>
+
+  <p style="font-size:12px;color:#6b7280;margin:0">
+    VolteraHQ POS • <a href="mailto:support@volterahq.com">support@volterahq.com</a>
+  </p>
+</div>`;
+
+  // Trigger Email extension: 'from' must be a STRING in your config/version
   await addDoc(collection(db, "mail"), {
     to: email,
-    message: { subject, html },
-    createdAt: serverTimestamp(),
+    from: "VolteraHQ <no-reply@volterahq.com>",
+    replyTo: "support@volterahq.com",
+    message: { subject, text, html },
   });
 
   return true;
